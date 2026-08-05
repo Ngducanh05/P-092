@@ -1,11 +1,17 @@
 """Alembic configuration tests."""
 
+import os
+import subprocess
+import sys
 from pathlib import Path
 
+import pytest
 from alembic.config import Config
 
 import src.database.models  # noqa: F401
+from src.config import Settings
 from src.database.base import Base
+from src.database.migration_safety import validate_live_migration_safety
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_TABLES = {
@@ -54,3 +60,79 @@ def test_autogenerate_compare_options_are_enabled():
 
     assert "compare_type=True" in env_text
     assert "compare_server_default=True" in env_text
+
+
+@pytest.mark.parametrize(
+    ("app_env", "allow_live_migration"),
+    [
+        ("production", True),
+        ("development", False),
+        ("test", False),
+    ],
+)
+def test_live_migration_safety_blocks_unsafe_combinations(app_env, allow_live_migration):
+    with pytest.raises(RuntimeError):
+        validate_live_migration_safety(
+            Settings(app_env=app_env, allow_live_migration=allow_live_migration, database_url=_placeholder_database_url())
+        )
+
+
+@pytest.mark.parametrize(("app_env", "allow_live_migration"), [("development", True), ("test", True)])
+def test_live_migration_safety_allows_gated_development_and_test(app_env, allow_live_migration):
+    validate_live_migration_safety(
+        Settings(app_env=app_env, allow_live_migration=allow_live_migration, database_url=_placeholder_database_url())
+    )
+
+
+def test_online_alembic_path_invokes_gate_before_connection():
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "current"],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        env=_safe_alembic_env(app_env="production", allow_live_migration="true"),
+        check=False,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode != 0
+    assert "Online migration is allowed only in development or test." in combined
+    assert "connection refused" not in combined.lower()
+    assert "could not translate host name" not in combined.lower()
+
+
+def test_offline_alembic_sql_output_contains_no_credentials():
+    result = subprocess.run(
+        [sys.executable, "-m", "alembic", "upgrade", "head", "--sql"],
+        cwd=PROJECT_ROOT,
+        text=True,
+        capture_output=True,
+        env=_safe_alembic_env(app_env="production", allow_live_migration="false"),
+        check=False,
+    )
+
+    combined = result.stdout + result.stderr
+    assert result.returncode == 0
+    assert "password" not in combined.lower()
+    assert _placeholder_database_url() not in combined
+
+
+def _placeholder_database_url() -> str:
+    return "postgresql://user:password@127.0.0.1:1/database"
+
+
+def _safe_alembic_env(*, app_env: str, allow_live_migration: str) -> dict[str, str]:
+    keep = {"PATH", "PATHEXT", "SYSTEMROOT", "WINDIR", "PYTHONPATH", "VIRTUAL_ENV"}
+    env = {name: value for name, value in os.environ.items() if name.upper() in keep}
+    env.update(
+        {
+            "APP_ENV": app_env,
+            "ALLOW_LIVE_MIGRATION": allow_live_migration,
+            "DATABASE_URL": _placeholder_database_url(),
+            "SUPABASE_URL": "",
+            "SUPABASE_PUBLISHABLE_KEY": "",
+            "SUPABASE_SECRET_KEY": "",
+            "RUN_SUPABASE_INTEGRATION_TESTS": "false",
+        }
+    )
+    return env

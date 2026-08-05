@@ -17,6 +17,14 @@ def test_known_database_placeholder_is_allowed(tmp_path):
     assert scan_paths([path]) == []
 
 
+def test_known_supabase_secret_placeholder_is_allowed(tmp_path):
+    path = tmp_path / "example.txt"
+    placeholder = "sb_secret_" + ("x" * 20)
+    path.write_text(f"SUPABASE_SECRET_KEY={placeholder}\n", encoding="utf-8")
+
+    assert scan_paths([path]) == []
+
+
 def test_real_openai_like_secret_detected_without_value(tmp_path):
     secret = "sk-" + ("a" * 40)
     path = tmp_path / "openai.txt"
@@ -25,6 +33,17 @@ def test_real_openai_like_secret_detected_without_value(tmp_path):
     findings = scan_paths([path])
 
     assert findings == [f"{path.name}: openai_key"]
+    assert secret not in findings[0]
+
+
+def test_real_supabase_secret_detected_without_value(tmp_path):
+    secret = "sb_secret_" + ("a" * 24)
+    path = tmp_path / "supabase.txt"
+    path.write_text(f"SUPABASE_SECRET_KEY={secret}\n", encoding="utf-8")
+
+    findings = scan_paths([path])
+
+    assert findings == [f"{path.name}: supabase_secret_key"]
     assert secret not in findings[0]
 
 
@@ -67,6 +86,23 @@ def test_file_with_placeholder_and_real_database_url_still_fails(tmp_path):
     assert scan_paths([path]) == [f"{path.name}: database_url_with_password"]
 
 
+def test_file_with_placeholder_and_real_supabase_secret_still_fails(tmp_path):
+    path = tmp_path / "mixed.txt"
+    placeholder = "sb_secret_" + ("x" * 20)
+    secret = "sb_secret_" + ("a" * 24)
+    path.write_text(
+        "\n".join(
+            [
+                f"SUPABASE_SECRET_KEY={placeholder}",
+                f"OTHER_SUPABASE_SECRET_KEY={secret}",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert scan_paths([path]) == [f"{path.name}: supabase_secret_key"]
+
+
 def test_env_venv_and_binary_files_are_skipped(tmp_path):
     env_file = tmp_path / ".env"
     env_file.write_text("OPENAI_API_KEY=" + "sk-" + ("a" * 40), encoding="utf-8")
@@ -89,5 +125,6 @@ def test_findings_print_only_path_and_pattern_type(capsys, monkeypatch, tmp_path
     assert main() == 1
     output = capsys.readouterr().out
 
-    assert f"- {path.name}: openai_key" in output
+    assert f"{path.name}: openai_key" in output
+    assert "Potential secrets detected" not in output
     assert secret not in output

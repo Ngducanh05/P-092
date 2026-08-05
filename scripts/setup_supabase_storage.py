@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from src.config import get_settings
+from src.security.supabase_admin import build_supabase_admin_headers
 
 
 def parser() -> argparse.ArgumentParser:
@@ -24,11 +25,7 @@ def main() -> int:
     if not settings.supabase_secret_key:
         raise SystemExit("SUPABASE_SECRET_KEY is required.")
     bucket_name = settings.supabase_storage_bucket
-    headers = {
-        "apikey": settings.supabase_secret_key,
-        "Authorization": f"Bearer {settings.supabase_secret_key}",
-        "Content-Type": "application/json",
-    }
+    headers = build_supabase_admin_headers(settings.supabase_secret_key)
     base_url = f"{settings.supabase_url.rstrip('/')}/storage/v1"
     desired = {
         "public": False,

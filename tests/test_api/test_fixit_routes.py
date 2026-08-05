@@ -32,6 +32,7 @@ def test_required_paths_exist_in_openapi():
     assert "/api/v1/tickets/{ticket_id}/attachments/{attachment_id}/download-url" in paths
     assert "/api/v1/coordinator/tickets" in paths
     assert "/health" in paths
+    assert "/ready" in paths
     assert "/api/v1/chat" not in paths
     assert "/api/v1/status" not in paths
 
@@ -88,6 +89,56 @@ async def test_role_forbidden_error_contract(client):
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "ROLE_FORBIDDEN"
+
+
+@pytest.mark.asyncio
+async def test_ready_success_uses_safe_statuses(client, monkeypatch):
+    def ready_check(self):
+        return (
+            {
+                "status": "ready",
+                "checks": {
+                    "database": "ok",
+                    "migration": "ok",
+                    "supabase_auth": "configured",
+                    "supabase_storage": "configured",
+                },
+            },
+            200,
+        )
+
+    monkeypatch.setattr("src.main.ReadinessService.check", ready_check)
+
+    response = await client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert "http" not in str(response.json()).lower()
+
+
+@pytest.mark.asyncio
+async def test_ready_failure_returns_503_without_stack_traces(client, monkeypatch):
+    def ready_check(self):
+        return (
+            {
+                "status": "not_ready",
+                "checks": {
+                    "database": "error",
+                    "migration": "unknown",
+                    "supabase_auth": "missing",
+                    "supabase_storage": "missing",
+                },
+            },
+            503,
+        )
+
+    monkeypatch.setattr("src.main.ReadinessService.check", ready_check)
+
+    response = await client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["checks"]["database"] == "error"
+    assert "traceback" not in str(response.json()).lower()
 
 
 @pytest.mark.asyncio

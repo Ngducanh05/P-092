@@ -3,7 +3,7 @@ FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY requirements.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir --user -r requirements.txt
 
 # ---- Stage 2: Production ----

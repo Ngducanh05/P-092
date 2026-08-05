@@ -2,6 +2,23 @@
 
 The `public.users.id -> auth.users.id` foreign key can be validated only when every application profile has a matching Supabase Auth user.
 
+Before validating, run only the count check:
+
+```sql
+SELECT COUNT(*)
+FROM public.users app_user
+LEFT JOIN auth.users auth_user
+  ON auth_user.id = app_user.id
+WHERE auth_user.id IS NULL;
+```
+
+Do not print IDs, emails, phone numbers, or other PII. If the count is zero, the migration may run:
+
+```sql
+ALTER TABLE public.users
+VALIDATE CONSTRAINT fk_users_id_auth_users;
+```
+
 The migration intentionally does not delete orphan profiles. If it stops with an orphan count:
 
 1. Confirm the database is a development/test target, not production.
@@ -12,3 +29,5 @@ The migration intentionally does not delete orphan profiles. If it stops with an
 6. Re-run `python -m alembic upgrade head` only after the orphan count is zero.
 
 Production data remediation requires a separate reviewed migration/runbook and is deferred from T-006/T-007.
+
+Current live status is BLOCKED — SAFE ENVIRONMENT NOT CONFIRMED until the count check, validation state, and migration head are verified on a confirmed Supabase development/test environment.

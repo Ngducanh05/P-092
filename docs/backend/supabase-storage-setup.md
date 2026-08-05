@@ -15,6 +15,8 @@ The helper requires `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, never prints secre
 - `image/png`
 - `image/webp`
 
+`SUPABASE_SECRET_KEY` supports current `sb_secret_*` keys and legacy service-role JWTs. Current `sb_secret_*` values are sent only as `apikey`; legacy service-role JWTs also keep `Authorization: Bearer <key>` compatibility.
+
 If automated setup cannot inspect or update the bucket safely, configure it manually in the Supabase Dashboard:
 
 1. Open Storage.
@@ -35,3 +37,5 @@ Attachment flow:
 7. Signed download URLs are generated only through `GET /api/v1/tickets/{ticket_id}/attachments/{attachment_id}/download-url` after backend authorization.
 
 The database stores stable private object paths in trusted rows only. Normal ticket API responses do not expose private paths.
+
+Live private bucket, signed upload, ticket attachment, and signed download validation remains BLOCKED — SAFE ENVIRONMENT NOT CONFIRMED until `tests/integration` is run against a confirmed Supabase development/test project.

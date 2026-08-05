@@ -14,6 +14,7 @@ import httpx
 from src.config import Settings, get_settings
 from src.models.api.errors import INVALID_ATTACHMENT, STORAGE_NOT_CONFIGURED, DomainError
 from src.models.api.storage import SignedUploadRequest
+from src.security.supabase_admin import build_supabase_admin_headers
 
 SIGNED_UPLOAD_EXPIRY_SECONDS = 7200
 SAFE_EXTENSIONS = {
@@ -194,7 +195,4 @@ class StorageService:
         return f"{self.settings.supabase_url.rstrip('/')}/storage/v1"
 
     def _service_headers(self) -> dict[str, str]:
-        return {
-            "apikey": self.settings.supabase_secret_key,
-            "Authorization": f"Bearer {self.settings.supabase_secret_key}",
-        }
+        return build_supabase_admin_headers(self.settings.supabase_secret_key)

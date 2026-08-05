@@ -13,6 +13,7 @@ from sqlalchemy import create_engine, text
 from src.config import get_settings
 from src.database.session import get_database_url
 from src.models.enums import Role
+from src.security.supabase_admin import build_supabase_admin_headers
 
 
 def parser() -> argparse.ArgumentParser:
@@ -66,7 +67,7 @@ def create_auth_user(email: str, dry_run: bool) -> UUID:
         return UUID("00000000-0000-0000-0000-000000000000")
     response = httpx.post(
         f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users",
-        headers={"apikey": secret, "Authorization": f"Bearer {secret}"},
+        headers=build_supabase_admin_headers(secret),
         json={"email": email, "password": password, "email_confirm": True},
         timeout=10.0,
     )

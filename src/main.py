@@ -8,7 +8,9 @@ from fastapi.responses import JSONResponse
 
 from src.api.router import api_router
 from src.config import get_settings
+from src.database.session import engine
 from src.models.api.errors import INTERNAL_ERROR, DomainError
+from src.services.readiness_service import ReadinessService
 
 logger = logging.getLogger(__name__)
 
@@ -93,3 +95,11 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
 @app.get("/health")
 async def health():
     return {"application": settings.app_name, "environment": settings.app_env, "status": "ok"}
+
+
+@app.get("/ready")
+async def ready():
+    payload, status_code = ReadinessService(settings, engine).check()
+    if status_code != 200:
+        return JSONResponse(status_code=status_code, content=payload)
+    return payload

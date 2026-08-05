@@ -13,10 +13,13 @@ All FixIt endpoints use `/api/v1` and Supabase Bearer authentication unless note
 | GET | `/tickets/{ticket_id}/attachments/{attachment_id}/download-url` | resident/coordinator | path IDs | signed download URL | Authorized parent ticket and attachment ownership |
 | GET | `/coordinator/tickets` | coordinator | filters/page | ticket page | System-wide MVP read |
 | GET | `/health` | public | none | application, environment, status | No secrets |
+| GET | `/ready` | public | none | readiness status and safe check labels | No hosts, URLs, credentials, or stack traces |
 
 Stable errors use `{ "error": { "code", "message", "details", "request_id" } }`.
 
-New tickets return `estimated_resolution_at = null` and `estimated_resolution_text = "Dang phan tich"` until SLA/ETA rules are approved.
+New tickets return `estimated_resolution_at = null` and `estimated_resolution_text = "Đang phân tích"` until SLA/ETA rules are approved.
+
+`/ready` is a shallow operational readiness endpoint. It checks database connectivity, the current Alembic revision where practical, and whether Supabase Auth/Storage settings are present. It is not a complete Supabase end-to-end test and does not replace `tests/integration`.
 
 Attachment upload flow:
 
