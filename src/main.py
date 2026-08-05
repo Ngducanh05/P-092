@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from uuid import uuid4
 
@@ -8,6 +9,8 @@ from fastapi.responses import JSONResponse
 from src.api.router import api_router
 from src.config import get_settings
 from src.models.api.errors import INTERNAL_ERROR, DomainError
+
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -64,6 +67,16 @@ async def domain_error_handler(request: Request, exc: DomainError) -> JSONRespon
 
 @app.exception_handler(Exception)
 async def unhandled_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception(
+        "Unhandled request error",
+        extra={
+            "request_id": getattr(request.state, "request_id", None),
+            "method": request.method,
+            "path": request.url.path,
+            "exception_type": type(exc).__name__,
+            "safe_message": "Internal server error.",
+        },
+    )
     return JSONResponse(
         status_code=500,
         content={

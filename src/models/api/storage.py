@@ -1,5 +1,7 @@
 """Storage API schemas."""
 
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -14,7 +16,7 @@ class SignedUploadRequest(BaseModel):
 class SignedUploadResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    storage_path: str
+    upload_id: UUID
     signed_upload_url: str | None = None
     signed_upload_token: str | None = None
     expires_in: int

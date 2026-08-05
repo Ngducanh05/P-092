@@ -24,12 +24,15 @@ class UserRepository:
         return self.db.scalar(select(User.role).where(User.id == user_id, User.is_active.is_(True)))
 
     def create_resident_profile(self, user_id: UUID, email: str | None, phone_number: str | None) -> User:
+        existing = self.get_by_id(user_id)
+        if existing is not None:
+            return existing
         user = User(id=user_id, email=email, phone_number=phone_number, role=Role.RESIDENT, is_active=True)
-        self.db.add(user)
         try:
-            self.db.flush()
+            with self.db.begin_nested():
+                self.db.add(user)
+                self.db.flush()
         except IntegrityError:
-            self.db.rollback()
             existing = self.get_by_id(user_id)
             if existing is None:
                 raise

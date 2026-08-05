@@ -7,7 +7,7 @@ from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 
 from src.database.base import Base
-from src.database.models import AIAnalysisRun, Ticket, TicketScoringResult
+from src.database.models import AIAnalysisRun, Ticket, TicketAttachmentUploadSession, TicketScoringResult
 from src.models.enums import Category, Priority, Role, Severity, TicketStatus
 
 EXPECTED_TABLES = {
@@ -15,6 +15,7 @@ EXPECTED_TABLES = {
     "units",
     "tickets",
     "ticket_attachments",
+    "ticket_attachment_upload_sessions",
     "ai_analysis_runs",
     "ticket_scoring_results",
 }
@@ -27,6 +28,7 @@ def test_all_orm_models_import_successfully():
     assert Unit.__tablename__ == "units"
     assert Ticket.__tablename__ == "tickets"
     assert TicketAttachment.__tablename__ == "ticket_attachments"
+    assert TicketAttachmentUploadSession.__tablename__ == "ticket_attachment_upload_sessions"
     assert AIAnalysisRun.__tablename__ == "ai_analysis_runs"
     assert TicketScoringResult.__tablename__ == "ticket_scoring_results"
 
@@ -45,6 +47,7 @@ def test_expected_foreign_keys_exist():
         ("tickets", "resident_id", "users.id", "RESTRICT"),
         ("tickets", "unit_id", "units.id", "RESTRICT"),
         ("ticket_attachments", "ticket_id", "tickets.id", "CASCADE"),
+        ("ticket_attachment_upload_sessions", "owner_user_id", "users.id", "RESTRICT"),
         ("ai_analysis_runs", "ticket_id", "tickets.id", "CASCADE"),
         ("ticket_scoring_results", "ticket_id", "tickets.id", "CASCADE"),
         ("ticket_scoring_results", "ai_analysis_run_id", "ai_analysis_runs.id", "SET NULL"),
@@ -77,6 +80,7 @@ def test_users_contact_columns_support_supabase_auth_profiles():
     assert "ix_users_email_not_null" in index_names
     assert "ix_users_phone_number_not_null" in index_names
     assert "ck_users_email_or_phone" in constraints
+    assert "ck_users_phone_number_e164" in constraints
 
 
 def test_tickets_description_is_required():

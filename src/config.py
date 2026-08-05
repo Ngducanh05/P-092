@@ -35,12 +35,12 @@ class Settings(BaseSettings):
     supabase_jwt_audience: str = "authenticated"
     supabase_jwt_verification_mode: Literal["jwks", "auth_server", "auto"] = "auto"
     supabase_storage_bucket: str = "ticket-attachments"
-    supabase_signed_upload_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     supabase_signed_download_ttl_seconds: int = Field(default=300, ge=30, le=3600)
     max_ticket_image_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
     allowed_ticket_image_mime_types: str | list[str] = "image/jpeg,image/png,image/webp"
     allow_live_migration: bool = False
     run_supabase_integration_tests: bool = False
+    enable_legacy_agent_routes: bool = False
 
     # Vector Store
     chroma_persist_dir: str = "./data/chroma"

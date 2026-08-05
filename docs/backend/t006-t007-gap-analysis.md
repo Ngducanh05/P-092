@@ -1,22 +1,24 @@
 # T-006/T-007 Gap Analysis
 
-| Requirement | Current state | Gap | Implementation action | Verification | Status |
-|---|---|---|---|---|---|
-| T-006 core API | Starter chat/status only | Missing FixIt endpoints | Added `/api/v1` auth, units, storage, tickets, coordinator routes | API tests/import | COMPLETE |
-| T-007 Supabase database | Core tables and placeholder RLS existed | User/Auth alignment missing | Added user schema migration and RLS identity migration | Migration static tests | COMPLETE |
-| Resident phone OTP | `users.email` required | Phone-only profile blocked | Added nullable email/full_name and unique phone | ORM/migration tests | COMPLETE |
-| Coordinator email/password | Role enum existed | Provisioning process absent | Added backend-only provisioning script | Static review | COMPLETE |
-| Technician email/password | Role enum existed | Provisioning process absent | Added backend-only provisioning script | Static review | COMPLETE |
-| JWT verification | None | Bearer token not validated | Added JWKS/auth-server/auto verifier | JWT tests | COMPLETE |
-| Local user profile | Local UUID default | Not tied to Supabase `sub` | `users.id` now supplied from Auth UUID | Migration/ORM tests | COMPLETE |
-| Membership ownership | Tables existed | API enforcement missing | Added unit/ticket repositories and service checks | Service/API tests | COMPLETE |
-| Ticket creation | Table existed | No route/service | Added transactional create service | Service/API tests | COMPLETE |
-| Ticket list/detail | Table existed | No API | Added resident/coordinator list/detail | API tests | COMPLETE |
-| Coordinator ticket list | Deferred in docs | No endpoint | Added system-wide MVP read endpoint | API tests | COMPLETE |
-| Private attachments | `file_url` metadata existed | No signed storage flow | Added signed upload service and attachment path checks | Storage tests | COMPLETE |
-| RLS | Deny placeholders | `NULL::uuid`/pending policies | New migration drops placeholders and binds `auth.uid()` | Static RLS tests | COMPLETE |
-| Live migration | No safe env proven | Cannot run safely by default | Documented gated live validation | Manual only | NOT RUN - SAFE ENVIRONMENT UNAVAILABLE |
-| Tests | DB tests existed | T-006/T-007 coverage missing | Added focused tests | pytest | COMPLETE |
-| Documentation | Starter/product docs incomplete | Missing Supabase/API docs | Added backend docs and README update | Static review | COMPLETE |
+| Requirement | Implementation action | Verification | Status |
+|---|---|---|---|
+| FixIt API routes | `/auth/me`, `/units/my`, signed upload, ticket create/list/detail, attachment download, and coordinator list are mounted under `/api/v1` | API tests | COMPLETE |
+| Supabase Bearer auth | Cached verifier dependency supports JWKS, Auth server, and auto mode | JWT and API tests | COMPLETE |
+| Resident profile mapping | `public.users.id` uses JWT `sub`; unknown valid Auth users are created only as residents | Auth dependency tests | COMPLETE |
+| Phone-only residents | Email/full name nullable, phone unique when present, strict E.164 app validation and PostgreSQL check constraint | ORM/migration/auth tests | COMPLETE |
+| Privileged users | Coordinator/technician provisioning remains backend-only | Script review and docs | IMPLEMENTED - UNIT TESTED |
+| Ticket creation | Unit selection, status history, attachment consumption, and rollback are transactional | Service tests | COMPLETE |
+| Private attachments | Public API uses upload sessions, not raw object paths; ticket responses hide private paths | API/service/storage tests | COMPLETE |
+| Signed upload expiry | Upload target expiry is fixed at 7200 seconds | Storage tests | COMPLETE |
+| Signed download | Download URL endpoint is authorized by ticket access and masks missing/unauthorized attachments | API/service tests | COMPLETE |
+| JWT security cases | RS256, ES256, HS256 fallback, invalid claims, unknown keys, Auth-server failures, and cache reuse covered | JWT tests | COMPLETE |
+| RLS identity binding | Final policies use `auth.uid()` for authenticated users and deny direct mutation | Migration tests | IMPLEMENTED - UNIT TESTED |
+| Upload-session RLS | Upload-session table has RLS enabled and denies direct anon/authenticated access | Migration tests | IMPLEMENTED - UNIT TESTED |
+| Auth FK validation | Additive migration validates `fk_users_id_auth_users` only when no orphan profiles exist | Migration tests and remediation doc | IMPLEMENTED - NOT LIVE TESTED |
+| Private bucket setup | Backend-only setup script creates/verifies a private constrained bucket | Script review and storage docs | IMPLEMENTED - NOT LIVE TESTED |
+| Secret scanning | Match-level allowlisting prevents mixed placeholder/secret bypasses | Secret scanner tests and CI | COMPLETE |
+| Live Supabase validation | Gated tests fail fast when enabled without required variables and tokens | Not run locally | BLOCKED - MISSING SAFE ENVIRONMENT |
 
-Live Supabase validation remains blocked unless `APP_ENV` is `development` or `test`, `ALLOW_LIVE_MIGRATION=1`, and a disposable Supabase target is configured.
+T-006 is code complete and covered by the default test suite.
+
+T-007 is code complete, but live Supabase migration/Auth/RLS/Storage evidence is blocked until a confirmed development/test Supabase project and required tokens are available. Do not report production readiness from this repository state alone.

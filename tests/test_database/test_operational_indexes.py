@@ -12,6 +12,18 @@ def test_required_operational_indexes_exist():
         ("ticket_assignments", "ix_ticket_assignments_ticket_assigned_at", ("ticket_id", "assigned_at"), False),
         ("ticket_assignments", "ix_ticket_assignments_technician_active", ("technician_id", "is_active"), False),
         (
+            "ticket_attachment_upload_sessions",
+            "ix_ticket_attachment_upload_sessions_owner_status",
+            ("owner_user_id", "status"),
+            False,
+        ),
+        (
+            "ticket_attachment_upload_sessions",
+            "ix_ticket_attachment_upload_sessions_expires_at",
+            ("expires_at",),
+            False,
+        ),
+        (
             "ticket_assignments",
             "uq_ticket_assignments_one_active_per_ticket",
             ("ticket_id",),

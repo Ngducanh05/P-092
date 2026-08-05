@@ -15,6 +15,11 @@ PATTERNS = {
     "supabase_jwt": re.compile(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}"),
     "database_url_with_password": re.compile(r"postgres(?:ql)?://[^:\s]+:[^@\s]+@"),
 }
+ALLOWLISTED_MATCHES = {
+    "database_url_with_password": {
+        "postgresql://user:password@",
+    },
+}
 
 
 def tracked_files() -> list[Path]:
@@ -23,12 +28,12 @@ def tracked_files() -> list[Path]:
 
 
 def is_skipped(path: Path) -> bool:
-    return any(part in SKIP_PARTS for part in path.relative_to(ROOT).parts)
+    return any(part in SKIP_PARTS for part in _skip_parts(path))
 
 
-def main() -> int:
+def scan_paths(paths: list[Path]) -> list[str]:
     findings: list[str] = []
-    for path in tracked_files():
+    for path in paths:
         if is_skipped(path):
             continue
         try:
@@ -38,8 +43,29 @@ def main() -> int:
         except OSError:
             continue
         for name, pattern in PATTERNS.items():
-            if pattern.search(text) and "postgresql://user:password@host:5432/database" not in text:
-                findings.append(f"{path.relative_to(ROOT)}: {name}")
+            for match in pattern.finditer(text):
+                if match.group(0) in ALLOWLISTED_MATCHES.get(name, set()):
+                    continue
+                findings.append(f"{_display_path(path)}: {name}")
+    return findings
+
+
+def _display_path(path: Path) -> Path:
+    try:
+        return path.relative_to(ROOT)
+    except ValueError:
+        return Path(path.name)
+
+
+def _skip_parts(path: Path) -> tuple[str, ...]:
+    try:
+        return path.relative_to(ROOT).parts
+    except ValueError:
+        return path.parts
+
+
+def main() -> int:
+    findings = scan_paths(tracked_files())
     if findings:
         print("Potential secrets detected:")
         for finding in findings:

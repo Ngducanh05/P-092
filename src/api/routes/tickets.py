@@ -11,7 +11,13 @@ from src.api.dependencies.roles import require_resident, require_role
 from src.database.models.attachment import TicketAttachment
 from src.database.models.ticket import Ticket
 from src.database.models.user import User
-from src.models.api.tickets import TicketAttachmentResponse, TicketCreateRequest, TicketListResponse, TicketResponse
+from src.models.api.tickets import (
+    AttachmentDownloadUrlResponse,
+    TicketAttachmentResponse,
+    TicketCreateRequest,
+    TicketListResponse,
+    TicketResponse,
+)
 from src.models.enums import Category, Role, TicketStatus
 from src.services.ticket_service import TicketService
 
@@ -59,6 +65,23 @@ def ticket_detail(
     return ticket_response(ticket)
 
 
+@router.get("/{ticket_id}/attachments/{attachment_id}/download-url", response_model=AttachmentDownloadUrlResponse)
+def attachment_download_url(
+    ticket_id: UUID,
+    attachment_id: UUID,
+    user: User = Depends(require_role(Role.RESIDENT, Role.COORDINATOR)),
+    db: Session = Depends(get_db),
+) -> AttachmentDownloadUrlResponse:
+    attachment, signed_url, expires_in = TicketService(db).get_attachment_download_url_for_user(user, ticket_id, attachment_id)
+    return AttachmentDownloadUrlResponse(
+        attachment_id=attachment.id,
+        signed_download_url=signed_url,
+        expires_in=expires_in,
+        mime_type=attachment.mime_type,
+        file_size=attachment.file_size,
+    )
+
+
 def ticket_response(ticket: Ticket) -> TicketResponse:
     return TicketResponse(
         id=ticket.id,
@@ -79,7 +102,7 @@ def ticket_response(ticket: Ticket) -> TicketResponse:
 def attachment_response(attachment: TicketAttachment) -> TicketAttachmentResponse:
     return TicketAttachmentResponse(
         id=attachment.id,
-        storage_path=attachment.file_url,
         mime_type=attachment.mime_type,
         file_size=attachment.file_size,
+        download_url_endpoint=f"/api/v1/tickets/{attachment.ticket_id}/attachments/{attachment.id}/download-url",
     )

@@ -13,6 +13,7 @@ from src.database.models import (
     TechnicianProfile,
     TechnicianSkill,
     TicketAssignment,
+    TicketAttachmentUploadSession,
     TicketStatusHistory,
     UserUnitMembership,
 )
@@ -23,6 +24,7 @@ OPERATIONAL_TABLES = {
     "technician_profiles",
     "technician_skills",
     "ticket_assignments",
+    "ticket_attachment_upload_sessions",
     "ticket_status_history",
     "notifications",
     "audit_logs",
@@ -35,6 +37,7 @@ def test_operational_models_import_successfully():
     assert TechnicianProfile.__tablename__ == "technician_profiles"
     assert TechnicianSkill.__tablename__ == "technician_skills"
     assert TicketAssignment.__tablename__ == "ticket_assignments"
+    assert TicketAttachmentUploadSession.__tablename__ == "ticket_attachment_upload_sessions"
     assert TicketStatusHistory.__tablename__ == "ticket_status_history"
     assert Notification.__tablename__ == "notifications"
     assert AuditLog.__tablename__ == "audit_logs"
@@ -58,6 +61,7 @@ def test_operational_foreign_keys_point_to_expected_tables():
         ("ticket_assignments", "ticket_id", "tickets.id", "CASCADE"),
         ("ticket_assignments", "technician_id", "technician_profiles.user_id", "RESTRICT"),
         ("ticket_assignments", "assigned_by_user_id", "users.id", "RESTRICT"),
+        ("ticket_attachment_upload_sessions", "owner_user_id", "users.id", "RESTRICT"),
         ("ticket_status_history", "ticket_id", "tickets.id", "CASCADE"),
         ("ticket_status_history", "changed_by_user_id", "users.id", "SET NULL"),
         ("notifications", "recipient_user_id", "users.id", "RESTRICT"),

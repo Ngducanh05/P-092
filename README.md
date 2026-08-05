@@ -8,16 +8,10 @@ FixIt Agent is a FastAPI backend for resident incident reporting and ticket oper
 - Coordinator: authenticates with Supabase email/password and has system-wide ticket read access for this MVP.
 - Technician: authenticates with Supabase email/password; provisioning exists, technician workflow is deferred.
 
-## Implemented In T-006/T-007
+## T-006/T-007 Status
 
-- Supabase Bearer JWT verification via JWKS, Auth server, or auto mode.
-- `public.users.id = auth.users.id` profile mapping.
-- Resident profile auto-provisioning only as `resident`.
-- Backend-only coordinator/technician provisioning helper.
-- Private Supabase Storage signed upload flow for ticket images.
-- Resident ticket creation/list/detail and coordinator ticket list.
-- Additive Alembic migrations for Supabase-compatible users and RLS identity policies.
-- Stable API error contract.
+- T-006: IMPLEMENTED - UNIT TESTED. The FastAPI routes, role checks, stable errors, upload-session ticket creation, and authorized attachment download flow are covered by default tests.
+- T-007: IMPLEMENTED - NOT LIVE TESTED. Supabase-compatible user schema, JWT verification modes, private Storage helpers, RLS migrations, and safe validation scripts are implemented. Live Supabase validation remains blocked until a confirmed development/test project and gated credentials are provided.
 
 ## Out Of Scope
 
@@ -56,6 +50,10 @@ Important settings:
 - `SUPABASE_JWT_AUDIENCE=authenticated`
 - `SUPABASE_JWT_VERIFICATION_MODE=auto`
 - `SUPABASE_STORAGE_BUCKET=ticket-attachments`
+- `SUPABASE_SIGNED_DOWNLOAD_TTL_SECONDS=300`
+- `MAX_TICKET_IMAGE_BYTES=10485760`
+- `ALLOWED_TICKET_IMAGE_MIME_TYPES=image/jpeg,image/png,image/webp`
+- `ENABLE_LEGACY_AGENT_ROUTES=false`
 
 Never expose `SUPABASE_SECRET_KEY` to the frontend.
 
@@ -89,14 +87,20 @@ Core paths:
 - `POST /api/v1/tickets`
 - `GET /api/v1/tickets/my`
 - `GET /api/v1/tickets/{ticket_id}`
+- `GET /api/v1/tickets/{ticket_id}/attachments/{attachment_id}/download-url`
 - `GET /api/v1/coordinator/tickets`
 
-Legacy starter agent routes are still mounted as `/api/v1/chat` and `/api/v1/status`, tagged as Agent Legacy.
+Ticket creation accepts `attachment_upload_ids`, not raw private object paths. Ticket responses expose attachment metadata and a download URL endpoint, not private storage paths.
+
+Legacy starter Agent routes are disabled by default. They can be mounted only in development with `ENABLE_LEGACY_AGENT_ROUTES=true`; T-006/T-007 does not depend on them.
 
 ## Tests
 
 ```powershell
+python scripts/check_t006_t007_environment.py
+python -m pip check
 python -m ruff check src tests scripts alembic
+python scripts/scan_secrets.py
 python -m pytest tests -v
 python -m alembic heads
 python -m alembic history
@@ -110,6 +114,7 @@ Integration tests that touch Supabase are skipped unless `RUN_SUPABASE_INTEGRATI
 - FastAPI never receives user passwords or OTPs.
 - Role authorization uses `public.users.role`, not editable JWT metadata.
 - Unknown Auth users are auto-provisioned only as residents.
-- Storage buckets are private; signed URLs are short-lived.
-- Database stores private storage paths, not permanent public URLs.
+- Storage buckets are private; signed upload targets are fixed at 7200 seconds and signed download URLs use the configured short TTL.
+- Upload sessions prevent clients from forging raw object paths during ticket creation.
+- Database stores private storage paths only in trusted attachment records, not in normal public ticket responses.
 - `estimated_resolution_at` is currently `null` and `estimated_resolution_text` is `Đang phân tích` until an approved SLA formula exists.

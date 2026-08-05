@@ -9,6 +9,7 @@ from src.database.models.technician_profile import TechnicianProfile
 from src.database.models.technician_skill import TechnicianSkill
 from src.database.models.ticket import Ticket
 from src.database.models.ticket_assignment import TicketAssignment
+from src.database.models.ticket_attachment_upload_session import TicketAttachmentUploadSession
 from src.database.models.ticket_status_history import TicketStatusHistory
 from src.database.models.unit import Unit
 from src.database.models.user import User
@@ -23,6 +24,7 @@ __all__ = [
     "Ticket",
     "TicketAssignment",
     "TicketAttachment",
+    "TicketAttachmentUploadSession",
     "TicketScoringResult",
     "TicketStatusHistory",
     "Unit",

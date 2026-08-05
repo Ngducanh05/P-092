@@ -1,6 +1,6 @@
 """Ticket persistence operations."""
 
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from sqlalchemy import case, func, select
@@ -8,9 +8,11 @@ from sqlalchemy.orm import Session, selectinload
 
 from src.database.models.attachment import TicketAttachment
 from src.database.models.ticket import Ticket
+from src.database.models.ticket_attachment_upload_session import TicketAttachmentUploadSession
 from src.database.models.ticket_status_history import TicketStatusHistory
 from src.database.models.user_unit_membership import UserUnitMembership
 from src.models.enums import Category, Priority, TicketStatus
+from src.services.storage_service import SIGNED_UPLOAD_EXPIRY_SECONDS
 
 
 class TicketRepository:
@@ -42,14 +44,74 @@ class TicketRepository:
         self.db.flush()
         return history
 
-    def create_attachments(self, ticket_id: UUID, storage_paths: list[str]) -> list[TicketAttachment]:
+    def create_upload_session(
+        self,
+        owner_user_id: UUID,
+        storage_path: str,
+        original_filename: str | None,
+        mime_type: str,
+        file_size: int,
+    ) -> TicketAttachmentUploadSession:
+        upload_session = TicketAttachmentUploadSession(
+            owner_user_id=owner_user_id,
+            storage_path=storage_path,
+            original_filename=original_filename,
+            mime_type=mime_type,
+            file_size=file_size,
+            status="pending",
+            expires_at=datetime.now(UTC) + timedelta(seconds=SIGNED_UPLOAD_EXPIRY_SECONDS),
+        )
+        self.db.add(upload_session)
+        self.db.flush()
+        return upload_session
+
+    def lock_upload_sessions(self, upload_ids: list[UUID]) -> list[TicketAttachmentUploadSession]:
+        if not upload_ids:
+            return []
+        return list(
+            self.db.scalars(
+                select(TicketAttachmentUploadSession)
+                .where(TicketAttachmentUploadSession.id.in_(upload_ids))
+                .with_for_update()
+            )
+        )
+
+    def create_attachments_from_upload_sessions(
+        self,
+        ticket_id: UUID,
+        upload_sessions: list[TicketAttachmentUploadSession],
+    ) -> list[TicketAttachment]:
         attachments = [
-            TicketAttachment(ticket_id=ticket_id, file_url=path, file_type="private_storage", mime_type=None, file_size=None)
-            for path in storage_paths
+            TicketAttachment(
+                ticket_id=ticket_id,
+                file_url=upload_session.storage_path,
+                file_type=self._file_type_for_mime(upload_session.mime_type),
+                mime_type=upload_session.mime_type,
+                file_size=upload_session.file_size,
+            )
+            for upload_session in upload_sessions
         ]
         self.db.add_all(attachments)
         self.db.flush()
         return attachments
+
+    def mark_upload_sessions_consumed(self, upload_sessions: list[TicketAttachmentUploadSession]) -> None:
+        now = datetime.now(UTC)
+        for upload_session in upload_sessions:
+            upload_session.status = "consumed"
+            upload_session.consumed_at = now
+            upload_session.updated_at = now
+        self.db.flush()
+
+    def mark_upload_sessions_verified(
+        self,
+        upload_sessions: list[TicketAttachmentUploadSession],
+        verified_at: datetime,
+    ) -> None:
+        for upload_session in upload_sessions:
+            upload_session.object_verified_at = verified_at
+            upload_session.updated_at = verified_at
+        self.db.flush()
 
     def list_resident_accessible_tickets(
         self,
@@ -113,6 +175,11 @@ class TicketRepository:
     def get_ticket_by_id_for_coordinator(self, ticket_id: UUID) -> Ticket | None:
         return self.db.scalar(select(Ticket).where(Ticket.id == ticket_id).options(selectinload(Ticket.attachments)))
 
+    def get_attachment_for_ticket(self, ticket_id: UUID, attachment_id: UUID) -> TicketAttachment | None:
+        return self.db.scalar(
+            select(TicketAttachment).where(TicketAttachment.ticket_id == ticket_id, TicketAttachment.id == attachment_id)
+        )
+
     def _resident_query(self, user_id: UUID):
         return (
             select(Ticket)
@@ -132,3 +199,8 @@ class TicketRepository:
         if created_to is not None:
             query = query.where(Ticket.created_at <= created_to)
         return query
+
+    def _file_type_for_mime(self, mime_type: str) -> str:
+        if mime_type.startswith("image/"):
+            return "image"
+        return "private_storage"

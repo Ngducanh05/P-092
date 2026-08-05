@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from src.database.models.technician_profile import TechnicianProfile
     from src.database.models.ticket import Ticket
     from src.database.models.ticket_assignment import TicketAssignment
+    from src.database.models.ticket_attachment_upload_session import TicketAttachmentUploadSession
     from src.database.models.ticket_status_history import TicketStatusHistory
     from src.database.models.user_unit_membership import UserUnitMembership
 
@@ -35,6 +36,10 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = (
         CheckConstraint("email IS NOT NULL OR phone_number IS NOT NULL", name="ck_users_email_or_phone"),
+        CheckConstraint(
+            r"phone_number IS NULL OR phone_number ~ '^\+[1-9][0-9]{6,14}$'",
+            name="ck_users_phone_number_e164",
+        ).ddl_if(dialect="postgresql"),
         Index("ix_users_email_not_null", "email", unique=True, postgresql_where=text("email IS NOT NULL")),
         Index(
             "ix_users_phone_number_not_null",
@@ -86,3 +91,4 @@ class User(Base):
         back_populates="actor_user",
         foreign_keys="AuditLog.actor_user_id",
     )
+    ticket_attachment_upload_sessions: Mapped[list[TicketAttachmentUploadSession]] = relationship(back_populates="owner")

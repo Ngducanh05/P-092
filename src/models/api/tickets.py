@@ -15,13 +15,13 @@ class TicketCreateRequest(BaseModel):
     description: str = Field(min_length=10, max_length=5000)
     unit_id: UUID | None = None
     location_description: str | None = Field(default=None, max_length=500)
-    attachment_storage_paths: list[str] = Field(default_factory=list, max_length=5)
+    attachment_upload_ids: list[UUID] = Field(default_factory=list, max_length=5)
 
-    @field_validator("attachment_storage_paths")
+    @field_validator("attachment_upload_ids")
     @classmethod
-    def no_duplicate_paths(cls, value: list[str]) -> list[str]:
+    def no_duplicate_upload_ids(cls, value: list[UUID]) -> list[UUID]:
         if len(value) != len(set(value)):
-            raise ValueError("Duplicate attachment paths are not allowed.")
+            raise ValueError("Duplicate attachment upload IDs are not allowed.")
         return value
 
 
@@ -29,7 +29,18 @@ class TicketAttachmentResponse(BaseModel):
     model_config = ConfigDict(extra="forbid", from_attributes=True)
 
     id: UUID
-    storage_path: str
+    mime_type: str | None
+    file_size: int | None
+    downloadable: bool = True
+    download_url_endpoint: str
+
+
+class AttachmentDownloadUrlResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    attachment_id: UUID
+    signed_download_url: str
+    expires_in: int
     mime_type: str | None
     file_size: int | None
 

@@ -11,6 +11,7 @@ from src.database.models import (
     TechnicianSkill,
     Ticket,
     TicketAssignment,
+    TicketAttachmentUploadSession,
     TicketStatusHistory,
     Unit,
     User,
@@ -28,6 +29,7 @@ def test_operational_relationships_have_matching_back_populates():
             "status_changes": "changed_by_user",
             "notifications": "recipient_user",
             "audit_logs": "actor_user",
+            "ticket_attachment_upload_sessions": "owner",
         },
         Unit: {"user_memberships": "unit"},
         Ticket: {
@@ -48,6 +50,7 @@ def test_operational_relationships_have_matching_back_populates():
             "technician_profile": "assigned_ticket_records",
             "assigned_by_user": "coordinator_assignment_records",
         },
+        TicketAttachmentUploadSession: {"owner": "ticket_attachment_upload_sessions"},
         TicketStatusHistory: {"ticket": "status_history", "changed_by_user": "status_changes"},
         Notification: {"recipient_user": "notifications", "ticket": "notifications"},
         AuditLog: {"actor_user": "audit_logs"},

@@ -67,6 +67,214 @@ NEW_POLICIES = (
     ("audit_logs", "rls_audit_logs_deny_all_client_access"),
 )
 
+OLD_POLICY_SQL = (
+    "CREATE POLICY rls_users_deny_all ON users USING (false) WITH CHECK (false)",
+    "CREATE POLICY rls_units_deny_all ON units USING (false) WITH CHECK (false)",
+    """
+    CREATE POLICY rls_user_unit_memberships_deny_all
+    ON user_unit_memberships
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_technician_profiles_deny_all
+    ON technician_profiles
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_technician_skills_deny_all
+    ON technician_skills
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_tickets_resident_select_owned_pending_identity
+    ON tickets
+    FOR SELECT
+    USING (
+        false
+        AND EXISTS (
+            SELECT 1
+            FROM user_unit_memberships membership
+            WHERE membership.user_id = NULL::uuid
+              AND membership.unit_id = tickets.unit_id
+              AND membership.is_active = true
+        )
+    )
+    """,
+    """
+    CREATE POLICY rls_tickets_technician_select_assigned_pending_identity
+    ON tickets
+    FOR SELECT
+    USING (
+        false
+        AND EXISTS (
+            SELECT 1
+            FROM ticket_assignments assignment
+            WHERE assignment.ticket_id = tickets.id
+              AND assignment.technician_id = NULL::uuid
+              AND assignment.is_active = true
+        )
+    )
+    """,
+    """
+    CREATE POLICY rls_tickets_deny_client_mutation
+    ON tickets
+    FOR ALL
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_ticket_attachments_resident_select_owned_pending_identity
+    ON ticket_attachments
+    FOR SELECT
+    USING (
+        false
+        AND EXISTS (
+            SELECT 1
+            FROM tickets
+            JOIN user_unit_memberships membership
+              ON membership.unit_id = tickets.unit_id
+             AND membership.is_active = true
+            WHERE tickets.id = ticket_attachments.ticket_id
+              AND membership.user_id = NULL::uuid
+        )
+    )
+    """,
+    """
+    CREATE POLICY rls_ticket_attachments_technician_select_assigned_pending_identity
+    ON ticket_attachments
+    FOR SELECT
+    USING (
+        false
+        AND EXISTS (
+            SELECT 1
+            FROM ticket_assignments assignment
+            WHERE assignment.ticket_id = ticket_attachments.ticket_id
+              AND assignment.technician_id = NULL::uuid
+              AND assignment.is_active = true
+        )
+    )
+    """,
+    """
+    CREATE POLICY rls_ticket_attachments_deny_client_mutation
+    ON ticket_attachments
+    FOR ALL
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_ticket_assignments_technician_select_assigned_pending_identity
+    ON ticket_assignments
+    FOR SELECT
+    USING (
+        false
+        AND technician_id = NULL::uuid
+        AND is_active = true
+    )
+    """,
+    """
+    CREATE POLICY rls_ticket_assignments_deny_client_mutation
+    ON ticket_assignments
+    FOR ALL
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_ticket_status_history_resident_select_owned_pending_identity
+    ON ticket_status_history
+    FOR SELECT
+    USING (
+        false
+        AND EXISTS (
+            SELECT 1
+            FROM tickets
+            JOIN user_unit_memberships membership
+              ON membership.unit_id = tickets.unit_id
+             AND membership.is_active = true
+            WHERE tickets.id = ticket_status_history.ticket_id
+              AND membership.user_id = NULL::uuid
+        )
+    )
+    """,
+    """
+    CREATE POLICY rls_ticket_status_history_technician_select_assigned_pending_identity
+    ON ticket_status_history
+    FOR SELECT
+    USING (
+        false
+        AND EXISTS (
+            SELECT 1
+            FROM ticket_assignments assignment
+            WHERE assignment.ticket_id = ticket_status_history.ticket_id
+              AND assignment.technician_id = NULL::uuid
+              AND assignment.is_active = true
+        )
+    )
+    """,
+    """
+    CREATE POLICY rls_ticket_status_history_deny_client_mutation
+    ON ticket_status_history
+    FOR ALL
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_ai_analysis_runs_deny_all
+    ON ai_analysis_runs
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_ticket_scoring_results_deny_all
+    ON ticket_scoring_results
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_notifications_user_select_owned_pending_identity
+    ON notifications
+    FOR SELECT
+    USING (
+        false
+        AND recipient_user_id = NULL::uuid
+    )
+    """,
+    """
+    CREATE POLICY rls_notifications_deny_client_mutation
+    ON notifications
+    FOR ALL
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_audit_logs_deny_client_select
+    ON audit_logs
+    FOR SELECT
+    USING (false)
+    """,
+    """
+    CREATE POLICY rls_audit_logs_service_insert_pending_identity
+    ON audit_logs
+    FOR INSERT
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_audit_logs_deny_client_update
+    ON audit_logs
+    FOR UPDATE
+    USING (false)
+    WITH CHECK (false)
+    """,
+    """
+    CREATE POLICY rls_audit_logs_deny_client_delete
+    ON audit_logs
+    FOR DELETE
+    USING (false)
+    """,
+)
+
 
 def upgrade() -> None:
     """Upgrade schema."""
@@ -263,3 +471,5 @@ def downgrade() -> None:
     """Downgrade schema."""
     for table_name, policy_name in reversed(NEW_POLICIES):
         op.execute(f"DROP POLICY IF EXISTS {policy_name} ON {table_name}")
+    for policy_sql in OLD_POLICY_SQL:
+        op.execute(policy_sql)
