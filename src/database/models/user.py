@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Index, String, func, text
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
@@ -33,10 +33,21 @@ class User(Base):
     """Application user that can own maintenance tickets."""
 
     __tablename__ = "users"
+    __table_args__ = (
+        CheckConstraint("email IS NOT NULL OR phone_number IS NOT NULL", name="ck_users_email_or_phone"),
+        Index("ix_users_email_not_null", "email", unique=True, postgresql_where=text("email IS NOT NULL")),
+        Index(
+            "ix_users_phone_number_not_null",
+            "phone_number",
+            unique=True,
+            postgresql_where=text("phone_number IS NOT NULL"),
+        ),
+    )
 
-    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
-    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    id: Mapped[UUID] = mapped_column(Uuid, primary_key=True)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    phone_number: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    full_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     role: Mapped[Role] = mapped_column(
         SQLEnum(Role, name="role_enum", native_enum=True, values_callable=enum_values),
         nullable=False,

@@ -306,7 +306,7 @@ Nhiều đội commit API key trực tiếp vào source code trên GitHub. Đây
 ```python
 # SAI: Hardcoded API key
 openai_client = OpenAI(api_key="sk-proj-abc123...")
-DATABASE_URL = "postgresql://admin:password123@localhost/db"
+DATABASE_URL = "postgresql://user:password@host:5432/database"
 
 # ĐÚNG: Dùng environment variables
 import os
@@ -320,7 +320,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL", "sqlite:///local.db")
 ```python
 # .env (không commit vào git!)
 OPENAI_API_KEY=sk-proj-abc123...
-DATABASE_URL=postgresql://user:pass@host/db
+DATABASE_URL=postgresql://user:password@host:5432/database
 ```
 
 ```text

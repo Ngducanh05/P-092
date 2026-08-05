@@ -65,10 +65,18 @@ def test_expected_foreign_keys_exist():
     assert expected <= actual
 
 
-def test_users_email_is_unique():
-    email = Base.metadata.tables["users"].c.email
+def test_users_contact_columns_support_supabase_auth_profiles():
+    users = Base.metadata.tables["users"]
+    index_names = {index.name for index in users.indexes}
+    constraints = _check_constraints("users")
 
-    assert email.unique is True
+    assert users.c.id.default is None
+    assert users.c.email.nullable is True
+    assert users.c.phone_number.nullable is True
+    assert users.c.full_name.nullable is True
+    assert "ix_users_email_not_null" in index_names
+    assert "ix_users_phone_number_not_null" in index_names
+    assert "ck_users_email_or_phone" in constraints
 
 
 def test_tickets_description_is_required():

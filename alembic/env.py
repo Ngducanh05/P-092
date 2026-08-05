@@ -21,7 +21,7 @@ target_metadata = Base.metadata
 
 def get_database_url() -> str:
     """Return the configured SQLAlchemy URL without exposing credentials."""
-    database_url = get_settings().database_url
+    database_url = get_settings().require_database_url()
     if database_url.startswith("postgresql://"):
         return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
     return database_url

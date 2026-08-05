@@ -12,9 +12,10 @@ settings = get_settings()
 
 def get_database_url() -> str:
     """Return a SQLAlchemy URL compatible with the installed psycopg driver."""
-    if settings.database_url.startswith("postgresql://"):
-        return settings.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
-    return settings.database_url
+    database_url = settings.require_database_url()
+    if database_url.startswith("postgresql://"):
+        return database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    return database_url
 
 
 engine = create_engine(get_database_url())

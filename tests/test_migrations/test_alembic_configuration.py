@@ -35,7 +35,7 @@ def test_alembic_uses_application_settings_for_database_url():
     env_text = (PROJECT_ROOT / "alembic" / "env.py").read_text(encoding="utf-8")
 
     assert "from src.config import get_settings" in env_text
-    assert "get_settings().database_url" in env_text
+    assert "get_settings().require_database_url()" in env_text
     assert "config.set_main_option(\"sqlalchemy.url\", get_database_url())" in env_text
 
 

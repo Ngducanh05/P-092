@@ -1,203 +1,115 @@
-# 🤖 AI20K Agent Template
+# FixIt Agent API
 
-Template chính thức cho học viên **VinUni AI20K Build Phase** — cung cấp sẵn cấu trúc dự án, code mẫu, và hướng dẫn kỹ thuật chi tiết để xây dựng AI Agent đạt điểm cao (35+/50).
+FixIt Agent is a FastAPI backend for resident incident reporting and ticket operations. This repository keeps the AI20K deliverable structure and starter LangGraph code, but the implemented backend scope here is limited to T-006 and T-007.
 
-> 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
+## Actors
 
-## 🎯 Template này dùng để làm gì?
+- Resident: authenticates with Supabase phone OTP and creates/views own unit tickets.
+- Coordinator: authenticates with Supabase email/password and has system-wide ticket read access for this MVP.
+- Technician: authenticates with Supabase email/password; provisioning exists, technician workflow is deferred.
 
-Khi tham gia AI20K Build Phase, mỗi đội cần xây dựng một AI Agent hoàn chỉnh — từ kiến trúc, code, test, đến deploy. Thay vì bắt đầu từ con số không, template này cung cấp:
+## Implemented In T-006/T-007
 
-- **Cấu trúc thư mục chuẩn** — đã được thiết kế theo best practices (separation of concerns)
-- **Code mẫu** cho các phần cốt lõi: LangGraph agent, FastAPI API, config, schemas
-- **Docker + CI/CD sẵn** — Dockerfile multi-stage, GitHub Actions workflow
-- **Hướng dẫn kỹ thuật 10 chương** — từ clone template đến nộp bài Demo Day
-- **Checklist 10 deliverables** — đảm bảo không bỏ sót yêu cầu BTC
-- **AI Usage Logging tự động** — Pre-configured hooks cho Claude Code, Cursor, Codex, Gemini CLI, Antigravity, và GitHub Copilot
+- Supabase Bearer JWT verification via JWKS, Auth server, or auto mode.
+- `public.users.id = auth.users.id` profile mapping.
+- Resident profile auto-provisioning only as `resident`.
+- Backend-only coordinator/technician provisioning helper.
+- Private Supabase Storage signed upload flow for ticket images.
+- Resident ticket creation/list/detail and coordinator ticket list.
+- Additive Alembic migrations for Supabase-compatible users and RLS identity policies.
+- Stable API error contract.
 
-## ⚡ Quick Start
+## Out Of Scope
 
-### Bước 1: Fork hoặc Clone
+Formula H, P0/manual review, category/priority override, technician assignment/work list/status updates, notification delivery, report export, LangGraph internals, frontend, production migration, Railway deployment, and Vercel deployment are deferred. See `docs/backend/deferred-backend-work.md`.
 
-```bash
-# Clone template
-git clone https://github.com/AI20K-Build-Cohort-2/starter-code-template.git team-YOUR_TEAM_NAME
-cd team-YOUR_TEAM_NAME
+## Architecture
 
-# Xóa git history cũ và khởi tạo lại
-rm -rf .git
-git init
-git add .
-git commit -m "feat: khởi tạo dự án từ template"
+Frontend authenticates directly with Supabase Auth, then sends `Authorization: Bearer <access_token>` to FastAPI. FastAPI verifies the token, loads `public.users` by JWT `sub`, and performs authorization/business operations. Business data is accessed through FastAPI; RLS is defense-in-depth.
+
+Target deployment shape:
+
+- Frontend: Vercel
+- Backend: Railway
+- Auth/Database/Storage: Supabase
+
+## Local Setup
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+copy .env.example .env
 ```
 
-### Bước 2: Setup môi trường
+Fill `.env` with development/test credentials only. `DATABASE_URL` must point to PostgreSQL/Supabase outside tests.
 
-```bash
-# Tạo virtual environment
-python3.11 -m venv .venv
-source .venv/bin/activate
+## Environment
 
-# Cài dependencies
-pip install -e ".[dev]"
+Important settings:
 
-# Cấu hình API keys
-cp .env.example .env
-# Mở .env và thêm OPENAI_API_KEY của bạn
-# Đồng thời cập nhật AI_LOG_API_KEY bằng key riêng từ link mời của BTC
-# (giá trị trong .env.example chỉ là placeholder)
+- `APP_NAME=FixIt Agent API`
+- `APP_ENV=development`
+- `DATABASE_URL=postgresql://user:password@host:5432/database`
+- `SUPABASE_URL=https://your-project-ref.supabase.co`
+- `SUPABASE_PUBLISHABLE_KEY=your-publishable-key`
+- `SUPABASE_SECRET_KEY=your-backend-secret-key`
+- `SUPABASE_JWT_AUDIENCE=authenticated`
+- `SUPABASE_JWT_VERIFICATION_MODE=auto`
+- `SUPABASE_STORAGE_BUCKET=ticket-attachments`
+
+Never expose `SUPABASE_SECRET_KEY` to the frontend.
+
+## Migrations
+
+```powershell
+python -m alembic heads
+python -m alembic history
+python -m alembic upgrade head
+python -m alembic current
 ```
 
-### Bước 3: Cài AI Logging Hooks
+Live Supabase migration must be limited to development/test and gated with `ALLOW_LIVE_MIGRATION=1`. See `docs/backend/t006-t007-live-validation.md`.
 
-```bash
-# Linux / macOS / Git Bash
-bash scripts/setup_hooks.sh
+## Run
 
-# Windows PowerShell
-# powershell -ExecutionPolicy Bypass -File scripts\setup_hooks.ps1
+```powershell
+python -m uvicorn src.main:app --reload --port 8000
 ```
 
-Hooks tự động log mọi AI prompt khi dùng Claude Code, Cursor, Codex, Gemini CLI, Antigravity, hoặc GitHub Copilot. Không cần thao tác thủ công.
+Swagger UI: `http://localhost:8000/docs`
 
-### Bước 4: Chạy server
+## API
 
-```bash
-# Chạy FastAPI backend
-uvicorn src.main:app --reload --port 8000
+Core paths:
 
-# Mở Swagger UI
-# http://localhost:8000/docs
+- `GET /health`
+- `GET /api/v1/auth/me`
+- `GET /api/v1/units/my`
+- `POST /api/v1/storage/ticket-attachments/upload-url`
+- `POST /api/v1/tickets`
+- `GET /api/v1/tickets/my`
+- `GET /api/v1/tickets/{ticket_id}`
+- `GET /api/v1/coordinator/tickets`
+
+Legacy starter agent routes are still mounted as `/api/v1/chat` and `/api/v1/status`, tagged as Agent Legacy.
+
+## Tests
+
+```powershell
+python -m ruff check src tests scripts alembic
+python -m pytest tests -v
+python -m alembic heads
+python -m alembic history
+python -c "from src.main import app; print(app.title)"
 ```
 
-### Bước 5: Đọc hướng dẫn
+Integration tests that touch Supabase are skipped unless `RUN_SUPABASE_INTEGRATION_TESTS=1`; migration actions also require `ALLOW_LIVE_MIGRATION=1`.
 
-📖 Mở **[Technical Guidebook](https://phoenix.note.transformerlabs.ai/technical-book)** và làm theo từng chương.
+## Security Notes
 
-## 📁 Cấu trúc dự án
-
-```
-├── src/
-│   ├── agents/           # 🧠 LangGraph Agent
-│   │   ├── graph.py      #    State graph (nodes + edges)
-│   │   ├── state.py      #    State schema (TypedDict)
-│   │   ├── nodes/        #    Node functions
-│   │   └── tools/        #    Agent tools (@tool)
-│   ├── api/              # 🌐 FastAPI Backend
-│   │   └── routes.py     #    API endpoints
-│   ├── models/           # 📋 Pydantic schemas
-│   ├── services/         # 🔧 Business logic (LLM, etc.)
-│   ├── config.py         # ⚙️ Pydantic Settings
-│   └── main.py           # 🚀 App entry point
-├── tests/                # 🧪 pytest suite
-│   ├── test_agents/      #    Agent/graph tests
-│   └── test_api/         #    API endpoint tests
-├── scripts/              # 🔌 AI Logging Hooks
-│   ├── log_hook.py       #    Auto-log cho Claude/Cursor/Codex/Gemini/Copilot
-│   ├── log_antigravity.py#    Antigravity IDE prompt scanner
-│   ├── log_manual.py     #    Manual log cho ChatGPT / web tools
-│   ├── submit_log.py     #    Submit logs on git push
-│   └── setup_hooks.sh    #    One-time hook installer
-├── .claude/ .codex/ .cursor/ .gemini/  # Per-tool hook configs
-├── .agents/              # Antigravity rules + workflows
-├── .ai-log/              # 📊 AI usage logs (auto-generated)
-├── docs/
-│   ├── guide/            # 📖 Technical Guidebook (10 chapters)
-│   └── architecture_diagram.md
-├── eval/                 # 📊 Evaluation results
-├── presentation/         # 🎤 Demo Day slides
-├── .github/workflows/    # ⚡ CI/CD (GitHub Actions)
-├── .github/hooks/        # 🪝 Copilot hook config
-├── Dockerfile            # 🐳 Multi-stage build
-├── docker-compose.yml    # 🐙 Full stack orchestration
-└── README_boilerplate.md # 📝 README template cho đội của bạn
-```
-
-## 📚 Technical Guidebook — 10 Chương
-
-| Chương | Nội dung                                                | Thời gian |
-| ------ | ------------------------------------------------------- | --------- |
-| 1      | Lời mở đầu — Mục tiêu, cách sử dụng                     | 15 phút   |
-| 2      | Khởi tạo dự án — Clone, setup, git workflow             | 4 giờ     |
-| 3      | Thiết kế kiến trúc — 3-tier, diagrams, ADR              | 6 giờ     |
-| 4      | **LangGraph Agent** — State, nodes, edges, tools, RAG   | 8 giờ     |
-| 5      | FastAPI — Routes, validation, error handling, streaming | 6 giờ     |
-| 6      | Giao diện — Next.js + Streamlit quickstart              | 6 giờ     |
-| 7      | DevOps — Docker, CI/CD, deploy, logging                 | 6 giờ     |
-| 8      | Kiểm thử — Unit test, integration test, RAGAS           | 4 giờ     |
-| 9      | Demo Day — 10 deliverables, checklist, tips             | 2 giờ     |
-| 10     | Tài nguyên — Khóa học, docs, BMAD method                | tham khảo |
-
-📖 **Đọc online:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-
-## 📋 10 Deliverables cho Demo Day
-
-| #   | Deliverable          | File vị trí                                      | Template có sẵn |
-| --- | -------------------- | ------------------------------------------------ | :-------------: |
-| 1   | Source Code          | `src/`                                           |       ✅        |
-| 2   | README.md            | `README_boilerplate.md` → copy thành `README.md` |       ✅        |
-| 3   | Architecture Diagram | `docs/architecture_diagram.md`                   |       ✅        |
-| 4   | AI Logs              | LangSmith (3 env vars) + Auto AI Usage Logging   |       ✅        |
-| 5   | Live URL             | Deploy lên Render/Vercel                         |  ⚡ CI/CD sẵn   |
-| 6   | Video Demo           | `presentation/`                                  |       📝        |
-| 7   | Pitch Deck           | `presentation/`                                  |       📝        |
-| 8   | Development Journal  | `JOURNAL.md`                                     |       ✅        |
-| 9   | Worklog              | `WORKLOG.md`                                     |       ✅        |
-| 10  | Evaluation Evidence  | `eval/`                                          |       📝        |
-
-## 🛠 Tech Stack
-
-| Layer    | Technology                       | Version     |
-| -------- | -------------------------------- | ----------- |
-| AI Agent | LangGraph + LangChain            | Latest      |
-| Backend  | FastAPI + Uvicorn                | 0.100+      |
-| LLM      | OpenAI GPT-4o-mini               | API         |
-| Frontend | Next.js / Streamlit              | 14+ / 1.30+ |
-| Database | SQLite (dev) / PostgreSQL (prod) | —           |
-| DevOps   | Docker + GitHub Actions          | —           |
-| Testing  | pytest + pytest-asyncio          | 8+          |
-
-## 📊 AI Usage Logging
-
-Template đã tích hợp sẵn auto-logging hooks cho 6 AI tools:
-
-| Tool             | Cơ chế                        | Config                  |
-| ---------------- | ----------------------------- | ----------------------- |
-| Claude Code      | `.claude/settings.json` hooks | Tự động                 |
-| Cursor           | `.cursor/hooks.json`          | Tự động                 |
-| OpenAI Codex CLI | `.codex/hooks.json`           | Tự động                 |
-| Gemini CLI       | `.gemini/settings.json`       | Tự động                 |
-| GitHub Copilot   | `.github/hooks/hooks.json`    | Tự động                 |
-| Antigravity IDE  | Pre-push scan transcript      | Tự động trên `git push` |
-
-Tất cả prompts và tool calls được log vào `.ai-log/session.jsonl` và tự động submit lên grading server mỗi khi `git push`.
-
-**ChatGPT / web tools khác** — log thủ công:
-
-```bash
-bash scripts/_pyrun.sh scripts/log_manual.py --tool chatgpt --prompt "What you asked"
-```
-
-> ⚠️ Chạy `bash scripts/setup_hooks.sh` một lần sau khi clone để cài pre-push hook.
-
-## 📖 Đọc Technical Guidebook
-
-**Online (khuyến nghị):** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-
-Đăng nhập bằng GitHub (cùng account đã được BTC mời vào org `AI20K-Build-Cohort-2`)
-→ chọn tab **Technical Book** ở sidebar trái → đọc 10 chương + topic sections,
-có table of contents bên phải, hỗ trợ light/dark/cyberpunk theme.
-
-**Offline:** mọi chương đều ở thư mục `docs/guide/` trong template này — mở bằng
-bất kỳ markdown viewer/editor nào (VS Code, Obsidian, GitHub UI, …).
-
-## 🔗 Liên kết  
-
-- 📖 **Technical Guidebook:** [phoenix.note.transformerlabs.ai/technical-book](https://phoenix.note.transformerlabs.ai/technical-book)
-- 🏫 **AI20K Program:** VinUni AI20K Build Phase
-- 👨‍🏫 **Mentor:** Đặng Hải Lộc
-
-## 📄 License
-
-MIT — Sử dụng tự do cho mục đích giáo dục.
-Test AI log
+- FastAPI never receives user passwords or OTPs.
+- Role authorization uses `public.users.role`, not editable JWT metadata.
+- Unknown Auth users are auto-provisioned only as residents.
+- Storage buckets are private; signed URLs are short-lived.
+- Database stores private storage paths, not permanent public URLs.
+- `estimated_resolution_at` is currently `null` and `estimated_resolution_text` is `Đang phân tích` until an approved SLA formula exists.

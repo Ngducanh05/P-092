@@ -186,7 +186,7 @@ services:
       - "8000:8000"
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - DATABASE_URL=postgresql://agentuser:agentpass@db:5432/agentdb
+      - DATABASE_URL=postgresql://user:password@host:5432/database
       - REDIS_URL=redis://redis:6379/0
       - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
       - LANGSMITH_PROJECT=ai20k-agent
@@ -494,7 +494,7 @@ Các bước deploy lên Render:
 
 ```
 OPENAI_API_KEY=sk-proj-xxxxx
-DATABASE_URL=postgresql://user:pass@host:5432/db
+DATABASE_URL=postgresql://user:password@host:5432/database
 LANGSMITH_API_KEY=lsv2_pt_xxxxx
 LANGSMITH_PROJECT=ai20k-agent-production
 ENVIRONMENT=production
