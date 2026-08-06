@@ -6,9 +6,10 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from src.database.models.attachment import TicketAttachment
+from src.database.models.bql_staff import BQLStaff
+from src.database.models.resident import Resident
 from src.database.models.ticket import Ticket
 from src.database.models.ticket_attachment_upload_session import TicketAttachmentUploadSession
-from src.database.models.user import User
 from src.models.api.errors import (
     ATTACHMENT_NOT_FOUND,
     INVALID_ATTACHMENT,
@@ -20,7 +21,7 @@ from src.models.api.errors import (
     DomainError,
 )
 from src.models.api.tickets import TicketCreateRequest
-from src.models.enums import Category, Priority, Role, TicketStatus
+from src.models.enums import Category, Priority, TicketStatus
 from src.repositories.ticket_repository import TicketRepository
 from src.repositories.unit_repository import UnitRepository
 from src.services.storage_service import StorageService
@@ -33,8 +34,8 @@ class TicketService:
         self.tickets = TicketRepository(db)
         self.storage = storage_service or StorageService()
 
-    def create_ticket(self, resident: User, request: TicketCreateRequest) -> Ticket:
-        active_units = self.units.list_active_memberships_for_user(resident.id)
+    def create_ticket(self, resident: Resident, request: TicketCreateRequest) -> Ticket:
+        active_units = self.units.list_active_memberships_for_resident(resident.id)
         if not active_units:
             raise DomainError(NO_ACTIVE_UNIT, "Resident has no active unit.", 400)
         if request.unit_id is None:
@@ -42,7 +43,7 @@ class TicketService:
                 raise DomainError(UNIT_SELECTION_REQUIRED, "unit_id is required when multiple units are active.", 400)
             unit = active_units[0]
         else:
-            unit = self.units.get_authorized_unit_for_user(resident.id, request.unit_id)
+            unit = self.units.get_authorized_unit_for_resident(resident.id, request.unit_id)
             if unit is None:
                 raise DomainError(UNIT_NOT_FOUND, "Unit not found.", 404)
 
@@ -67,7 +68,7 @@ class TicketService:
 
     def list_my_tickets(
         self,
-        resident: User,
+        resident: Resident,
         page: int,
         page_size: int,
         status: TicketStatus | None = None,
@@ -79,34 +80,54 @@ class TicketService:
             resident.id, page, page_size, status, category, created_from, created_to
         )
 
-    def get_ticket_for_user(self, user: User, ticket_id: UUID) -> Ticket:
-        if user.role == Role.COORDINATOR:
-            ticket = self.tickets.get_ticket_by_id_for_coordinator(ticket_id)
-        else:
-            ticket = self.tickets.get_resident_accessible_ticket(user.id, ticket_id)
+    def get_ticket_for_resident(self, resident: Resident, ticket_id: UUID) -> Ticket:
+        ticket = self.tickets.get_resident_accessible_ticket(resident.id, ticket_id)
         if ticket is None:
             raise DomainError(TICKET_NOT_FOUND, "Ticket not found.", 404)
         return ticket
 
-    def get_attachment_download_url_for_user(
+    def get_ticket_for_bql(self, _bql_staff: BQLStaff, ticket_id: UUID) -> Ticket:
+        ticket = self.tickets.get_ticket_by_id_for_bql(ticket_id)
+        if ticket is None:
+            raise DomainError(TICKET_NOT_FOUND, "Ticket not found.", 404)
+        return ticket
+
+    def get_attachment_download_url_for_resident(
         self,
-        user: User,
+        resident: Resident,
         ticket_id: UUID,
         attachment_id: UUID,
     ) -> tuple[TicketAttachment, str, int]:
         try:
-            ticket = self.get_ticket_for_user(user, ticket_id)
+            ticket = self.get_ticket_for_resident(resident, ticket_id)
         except DomainError as exc:
             if exc.code == TICKET_NOT_FOUND:
                 raise DomainError(ATTACHMENT_NOT_FOUND, "Attachment not found.", 404) from exc
             raise
+        return self._attachment_download(ticket, attachment_id)
+
+    def get_attachment_download_url_for_bql(
+        self,
+        bql_staff: BQLStaff,
+        ticket_id: UUID,
+        attachment_id: UUID,
+    ) -> tuple[TicketAttachment, str, int]:
+        try:
+            ticket = self.get_ticket_for_bql(bql_staff, ticket_id)
+        except DomainError as exc:
+            if exc.code == TICKET_NOT_FOUND:
+                raise DomainError(ATTACHMENT_NOT_FOUND, "Attachment not found.", 404) from exc
+            raise
+        return self._attachment_download(ticket, attachment_id)
+
+    def _attachment_download(self, ticket: Ticket, attachment_id: UUID) -> tuple[TicketAttachment, str, int]:
         attachment = self.tickets.get_attachment_for_ticket(ticket.id, attachment_id)
         if attachment is None:
             raise DomainError(ATTACHMENT_NOT_FOUND, "Attachment not found.", 404)
         signed_url = self.storage.create_signed_download_url(attachment.file_url)
         return attachment, signed_url, self.storage.settings.supabase_signed_download_ttl_seconds
 
-    def list_coordinator_tickets(
+    def list_bql_tickets(
         self,
         page: int,
         page_size: int,
@@ -116,7 +137,7 @@ class TicketService:
         created_from=None,
         created_to=None,
     ):
-        return self.tickets.list_coordinator_tickets(page, page_size, status, category, priority, created_from, created_to)
+        return self.tickets.list_bql_tickets(page, page_size, status, category, priority, created_from, created_to)
 
     def _lock_and_verify_upload_sessions(
         self,
@@ -133,7 +154,7 @@ class TicketService:
         now = datetime.now(UTC)
         verified_at = now
         for upload_session in ordered_sessions:
-            if upload_session.owner_user_id != resident_id:
+            if upload_session.resident_id != resident_id:
                 raise DomainError(INVALID_ATTACHMENT, "Invalid attachment upload session.", 400)
             if upload_session.status != "pending" or upload_session.consumed_at is not None:
                 raise DomainError(INVALID_ATTACHMENT, "Invalid attachment upload session.", 400)

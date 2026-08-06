@@ -1,39 +1,8 @@
 # Migration Guide
 
-## Prerequisites
+Existing migrations through `c3d4e5f6a7b8` remain historical and unchanged. The Resident/BQL actor refactor is introduced by two later migrations:
 
-- Use `C:\TEAM PROJECT\P-092\.venv`.
-- Confirm `python -c "import sys; print(sys.executable)"` points to the project venv.
-- Use a safe database target: local PostgreSQL, disposable PostgreSQL, Supabase development branch, or temporary Supabase test project.
-- Do not use production credentials for validation.
+- `d4e5f6a7b8c9`: creates `residents`, `bql_staff`, exclusivity trigger, `resident_unit_memberships`, and copied actor columns.
+- `e5f6a7b8c9d0`: validates copied counts, aborts if Technician/assignment rows exist, removes `public.users`, `role_enum`, Technician tables/views/policies, and installs final RLS.
 
-## Commands
-
-```powershell
-python -m alembic heads
-python -m alembic history
-python -m alembic upgrade head
-python -m alembic current
-```
-
-Rollback command for approved non-production testing only:
-
-```powershell
-python -m alembic downgrade -1
-```
-
-## Cautions
-
-- Never test destructive migration behavior against production Supabase.
-- Take a backup before production migration.
-- Do not run downgrade in production without approval, backup, and rollback plan.
-- Verify no migration contains hardcoded credentials or Supabase project URLs.
-
-## Verification Checklist
-
-- RLS enabled and forced on approved tables.
-- Security views exist and do not expose scoring/audit internals.
-- Public table privileges are revoked.
-- Static tests pass.
-- Live PostgreSQL RLS behavior is tested only against a safe target.
-
+Do not run live Supabase migrations without explicit safe flags and tokens.

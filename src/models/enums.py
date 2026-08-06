@@ -1,15 +1,6 @@
 from enum import Enum
 
 
-class Role(str, Enum):  # noqa: UP042
-    """User roles that participate in the FixIt workflow."""
-
-    RESIDENT = "resident"
-    COORDINATOR = "coordinator"
-    TECHNICIAN = "technician"
-    ADMIN = "admin"
-
-
 class TicketStatus(str, Enum):  # noqa: UP042
     """Lifecycle states for a maintenance ticket."""
 

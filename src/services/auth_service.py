@@ -1,19 +1,19 @@
 """Small auth response helpers."""
 
+from src.database.models.bql_staff import BQLStaff
+from src.database.models.resident import Resident
 from src.database.models.unit import Unit
-from src.database.models.user import User
-from src.models.api.auth import CurrentUserResponse
+from src.models.api.auth import CurrentBQLResponse, CurrentResidentResponse
 from src.models.api.units import UnitResponse
 
 
-def current_user_response(user: User, active_units: list[Unit]) -> CurrentUserResponse:
-    return CurrentUserResponse(
-        id=user.id,
-        role=user.role,
-        email=user.email,
-        phone_number=user.phone_number,
-        full_name=user.full_name,
-        is_active=user.is_active,
+def current_resident_response(resident: Resident, active_units: list[Unit]) -> CurrentResidentResponse:
+    return CurrentResidentResponse(
+        actor_type="resident",
+        id=resident.id,
+        phone_number=resident.phone_number,
+        full_name=resident.full_name,
+        is_active=resident.is_active,
         active_unit_memberships=[
             UnitResponse(
                 unit_id=unit.id,
@@ -24,4 +24,14 @@ def current_user_response(user: User, active_units: list[Unit]) -> CurrentUserRe
             )
             for unit in active_units
         ],
+    )
+
+
+def current_bql_response(bql_staff: BQLStaff) -> CurrentBQLResponse:
+    return CurrentBQLResponse(
+        actor_type="bql",
+        id=bql_staff.id,
+        email=bql_staff.email,
+        full_name=bql_staff.full_name,
+        is_active=bql_staff.is_active,
     )

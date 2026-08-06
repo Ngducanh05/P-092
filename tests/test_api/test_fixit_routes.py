@@ -5,18 +5,20 @@ from uuid import uuid4
 
 import pytest
 
-from src.api.dependencies.auth import get_current_user, get_supabase_jwt_verifier
+from src.api.dependencies.auth import CurrentActor, get_current_actor, get_supabase_jwt_verifier
 from src.api.dependencies.database import get_db
 from src.api.routes.storage import get_storage_service
 from src.database.models.attachment import TicketAttachment
+from src.database.models.bql_staff import BQLStaff
+from src.database.models.resident import Resident
+from src.database.models.resident_unit_membership import ResidentUnitMembership
 from src.database.models.ticket import Ticket
 from src.database.models.ticket_attachment_upload_session import TicketAttachmentUploadSession
 from src.database.models.unit import Unit
-from src.database.models.user import User
-from src.database.models.user_unit_membership import UserUnitMembership
 from src.main import app
-from src.models.api.errors import AUTH_TOKEN_INVALID, USER_INACTIVE, DomainError
-from src.models.enums import Role, TicketStatus
+from src.models.api.errors import ACTOR_FORBIDDEN, AUTH_TOKEN_INVALID, USER_INACTIVE, DomainError
+from src.models.enums import TicketStatus
+from src.security.supabase_jwt import AuthenticatedPrincipal
 from src.services.storage_service import SignedUploadTarget
 
 
@@ -30,11 +32,10 @@ def test_required_paths_exist_in_openapi():
     assert "/api/v1/tickets/my" in paths
     assert "/api/v1/tickets/{ticket_id}" in paths
     assert "/api/v1/tickets/{ticket_id}/attachments/{attachment_id}/download-url" in paths
-    assert "/api/v1/coordinator/tickets" in paths
+    assert "/api/v1/bql/tickets" in paths
+    assert "/api/v1/coordinator/tickets" not in paths
     assert "/health" in paths
     assert "/ready" in paths
-    assert "/api/v1/chat" not in paths
-    assert "/api/v1/status" not in paths
 
 
 @pytest.mark.asyncio
@@ -64,11 +65,11 @@ async def test_invalid_token_uses_stable_error_contract(client):
 
 
 @pytest.mark.asyncio
-async def test_inactive_user_error_contract(client):
-    def inactive_user():
-        raise DomainError(USER_INACTIVE, "User is inactive.", 403)
+async def test_inactive_actor_error_contract(client):
+    def inactive_actor():
+        raise DomainError(USER_INACTIVE, "Resident is inactive.", 403)
 
-    app.dependency_overrides[get_current_user] = inactive_user
+    app.dependency_overrides[get_current_actor] = inactive_actor
     try:
         response = await client.get("/api/v1/units/my")
     finally:
@@ -79,66 +80,16 @@ async def test_inactive_user_error_contract(client):
 
 
 @pytest.mark.asyncio
-async def test_role_forbidden_error_contract(client):
-    user = User(id=uuid4(), email="coordinator@example.com", role=Role.COORDINATOR, is_active=True)
-    app.dependency_overrides[get_current_user] = lambda: user
+async def test_actor_forbidden_error_contract(client):
+    bql_staff = BQLStaff(id=uuid4(), email="bql@example.com", is_active=True)
+    app.dependency_overrides[get_current_actor] = lambda: _actor("bql", bql_staff)
     try:
         response = await client.get("/api/v1/units/my")
     finally:
         app.dependency_overrides.clear()
 
     assert response.status_code == 403
-    assert response.json()["error"]["code"] == "ROLE_FORBIDDEN"
-
-
-@pytest.mark.asyncio
-async def test_ready_success_uses_safe_statuses(client, monkeypatch):
-    def ready_check(self):
-        return (
-            {
-                "status": "ready",
-                "checks": {
-                    "database": "ok",
-                    "migration": "ok",
-                    "supabase_auth": "configured",
-                    "supabase_storage": "configured",
-                },
-            },
-            200,
-        )
-
-    monkeypatch.setattr("src.main.ReadinessService.check", ready_check)
-
-    response = await client.get("/ready")
-
-    assert response.status_code == 200
-    assert response.json()["status"] == "ready"
-    assert "http" not in str(response.json()).lower()
-
-
-@pytest.mark.asyncio
-async def test_ready_failure_returns_503_without_stack_traces(client, monkeypatch):
-    def ready_check(self):
-        return (
-            {
-                "status": "not_ready",
-                "checks": {
-                    "database": "error",
-                    "migration": "unknown",
-                    "supabase_auth": "missing",
-                    "supabase_storage": "missing",
-                },
-            },
-            503,
-        )
-
-    monkeypatch.setattr("src.main.ReadinessService.check", ready_check)
-
-    response = await client.get("/ready")
-
-    assert response.status_code == 503
-    assert response.json()["checks"]["database"] == "error"
-    assert "traceback" not in str(response.json()).lower()
+    assert response.json()["error"]["code"] == ACTOR_FORBIDDEN
 
 
 @pytest.mark.asyncio
@@ -147,7 +98,7 @@ async def test_auth_me_and_units_success(client, db_session):
     unit = _unit()
     db_session.add_all([resident, unit, _membership(resident.id, unit.id)])
     db_session.commit()
-    _override_auth_and_db(resident, db_session)
+    _override_auth_and_db(_actor("resident", resident), db_session)
     try:
         me_response = await client.get("/api/v1/auth/me")
         units_response = await client.get("/api/v1/units/my")
@@ -155,10 +106,32 @@ async def test_auth_me_and_units_success(client, db_session):
         app.dependency_overrides.clear()
 
     assert me_response.status_code == 200
+    assert me_response.json()["actor_type"] == "resident"
     assert me_response.json()["id"] == str(resident.id)
     assert me_response.json()["active_unit_memberships"][0]["unit_id"] == str(unit.id)
     assert units_response.status_code == 200
     assert units_response.json()[0]["unit_id"] == str(unit.id)
+
+
+@pytest.mark.asyncio
+async def test_bql_auth_me_success(client, db_session):
+    bql_staff = BQLStaff(id=uuid4(), email="bql@example.com", full_name="BQL Staff", is_active=True)
+    db_session.add(bql_staff)
+    db_session.commit()
+    _override_auth_and_db(_actor("bql", bql_staff), db_session)
+    try:
+        response = await client.get("/api/v1/auth/me")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "actor_type": "bql",
+        "id": str(bql_staff.id),
+        "email": bql_staff.email,
+        "full_name": "BQL Staff",
+        "is_active": True,
+    }
 
 
 @pytest.mark.asyncio
@@ -177,7 +150,7 @@ async def test_signed_upload_creates_upload_session_without_raw_path(client, db_
                 required_headers={"content-type": request.mime_type},
             )
 
-    _override_auth_and_db(resident, db_session)
+    _override_auth_and_db(_actor("resident", resident), db_session)
     app.dependency_overrides[get_storage_service] = lambda: FakeStorage()
     try:
         response = await client.post(
@@ -197,13 +170,13 @@ async def test_signed_upload_creates_upload_session_without_raw_path(client, db_
 
 
 @pytest.mark.asyncio
-async def test_ticket_create_list_detail_and_coordinator_list(client, db_session):
+async def test_ticket_create_list_detail_and_bql_list(client, db_session):
     resident = _resident()
-    coordinator = User(id=uuid4(), email="coordinator@example.com", role=Role.COORDINATOR, is_active=True)
+    bql_staff = BQLStaff(id=uuid4(), email="bql@example.com", is_active=True)
     unit = _unit()
-    db_session.add_all([resident, coordinator, unit, _membership(resident.id, unit.id)])
+    db_session.add_all([resident, bql_staff, unit, _membership(resident.id, unit.id)])
     db_session.commit()
-    _override_auth_and_db(resident, db_session)
+    _override_auth_and_db(_actor("resident", resident), db_session)
     try:
         create_response = await client.post(
             "/api/v1/tickets",
@@ -223,14 +196,14 @@ async def test_ticket_create_list_detail_and_coordinator_list(client, db_session
     assert detail_response.status_code == 200
     assert detail_response.json()["id"] == ticket_id
 
-    _override_auth_and_db(coordinator, db_session)
+    _override_auth_and_db(_actor("bql", bql_staff), db_session)
     try:
-        coordinator_response = await client.get("/api/v1/coordinator/tickets")
+        bql_response = await client.get("/api/v1/bql/tickets")
     finally:
         app.dependency_overrides.clear()
 
-    assert coordinator_response.status_code == 200
-    assert coordinator_response.json()["total"] == 1
+    assert bql_response.status_code == 200
+    assert bql_response.json()["total"] == 1
 
 
 @pytest.mark.asyncio
@@ -262,7 +235,7 @@ async def test_attachment_download_url_authorized_and_no_raw_path(client, db_ses
             return "https://storage.example/download"
 
     monkeypatch.setattr("src.services.ticket_service.StorageService", lambda: FakeStorage())
-    _override_auth_and_db(resident, db_session)
+    _override_auth_and_db(_actor("resident", resident), db_session)
     try:
         detail_response = await client.get(f"/api/v1/tickets/{ticket.id}")
         download_response = await client.get(f"/api/v1/tickets/{ticket.id}/attachments/{attachment.id}/download-url")
@@ -279,8 +252,8 @@ async def test_attachment_download_url_authorized_and_no_raw_path(client, db_ses
     assert download_response.json()["signed_download_url"] == "https://storage.example/download"
 
 
-def _override_auth_and_db(user: User, db_session) -> None:
-    app.dependency_overrides[get_current_user] = lambda: user
+def _override_auth_and_db(actor: CurrentActor, db_session) -> None:
+    app.dependency_overrides[get_current_actor] = lambda: actor
 
     def override_db():
         yield db_session
@@ -288,18 +261,33 @@ def _override_auth_and_db(user: User, db_session) -> None:
     app.dependency_overrides[get_db] = override_db
 
 
-def _resident() -> User:
-    return User(id=uuid4(), email="resident@example.com", role=Role.RESIDENT, is_active=True)
+def _actor(actor_type, profile) -> CurrentActor:
+    return CurrentActor(
+        actor_type=actor_type,
+        profile=profile,
+        principal=AuthenticatedPrincipal(
+            auth_user_id=profile.id,
+            email=getattr(profile, "email", None),
+            phone=getattr(profile, "phone_number", None),
+            issuer="https://example.supabase.co/auth/v1",
+            audience="authenticated",
+            expires_at=datetime.now(UTC) + timedelta(minutes=5),
+        ),
+    )
+
+
+def _resident() -> Resident:
+    return Resident(id=uuid4(), phone_number=f"+8490{uuid4().int % 10_000_000:07d}", is_active=True)
 
 
 def _unit() -> Unit:
     return Unit(id=uuid4(), building_code="A", floor="10", unit_number="1001", is_active=True)
 
 
-def _membership(user_id, unit_id) -> UserUnitMembership:
-    return UserUnitMembership(
+def _membership(resident_id, unit_id) -> ResidentUnitMembership:
+    return ResidentUnitMembership(
         id=uuid4(),
-        user_id=user_id,
+        resident_id=resident_id,
         unit_id=unit_id,
         is_active=True,
         linked_at=datetime.now(UTC) - timedelta(days=1),

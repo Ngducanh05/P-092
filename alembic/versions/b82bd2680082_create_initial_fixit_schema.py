@@ -18,7 +18,7 @@ down_revision: str | Sequence[str] | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-role_enum = postgresql.ENUM("resident", "coordinator", "technician", "admin", name="role_enum")
+role_enum = postgresql.ENUM("resident", "coordinator", "technician", "admin", name="role_enum" , create_type=False,)
 ticket_status_enum = postgresql.ENUM(
     "new",
     "analyzing",
@@ -29,6 +29,7 @@ ticket_status_enum = postgresql.ENUM(
     "closed",
     "rejected",
     name="ticket_status_enum",
+    create_type=False,
 )
 category_enum = postgresql.ENUM(
     "electricity",
@@ -40,9 +41,10 @@ category_enum = postgresql.ENUM(
     "infrastructure",
     "other",
     name="category_enum",
+    create_type=False,
 )
-severity_enum = postgresql.ENUM("low", "medium", "high", "critical", name="severity_enum")
-priority_enum = postgresql.ENUM("p1", "p2", "p3", "p4", name="priority_enum")
+severity_enum = postgresql.ENUM("low", "medium", "high", "critical", name="severity_enum", create_type=False,)
+priority_enum = postgresql.ENUM("p1", "p2", "p3", "p4", name="priority_enum", create_type=False,)
 
 
 def upgrade() -> None:

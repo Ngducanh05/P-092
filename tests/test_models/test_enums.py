@@ -1,20 +1,11 @@
 import pytest
 
-from src.models import Category, Priority, Role, Severity, TicketStatus
+from src.models import Category, Priority, Severity, TicketStatus
 
 
 @pytest.mark.parametrize(
     ("enum_class", "expected_values"),
     [
-        (
-            Role,
-            [
-                "resident",
-                "coordinator",
-                "technician",
-                "admin",
-            ],
-        ),
         (
             TicketStatus,
             [
@@ -68,7 +59,6 @@ def test_enum_values_are_stable(enum_class, expected_values):
 @pytest.mark.parametrize(
     "enum_member",
     [
-        Role.RESIDENT,
         TicketStatus.NEW,
         Category.WATER,
         Severity.HIGH,
@@ -83,7 +73,6 @@ def test_enum_members_behave_as_strings(enum_member):
 @pytest.mark.parametrize(
     ("enum_class", "raw_value", "expected_member"),
     [
-        (Role, "resident", Role.RESIDENT),
         (TicketStatus, "waiting_assignment", TicketStatus.WAITING_ASSIGNMENT),
         (Category, "fire_safety", Category.FIRE_SAFETY),
         (Severity, "critical", Severity.CRITICAL),
@@ -97,7 +86,6 @@ def test_valid_raw_strings_construct_enum_members(enum_class, raw_value, expecte
 @pytest.mark.parametrize(
     "enum_class",
     [
-        Role,
         TicketStatus,
         Category,
         Severity,

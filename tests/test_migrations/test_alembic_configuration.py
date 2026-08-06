@@ -15,10 +15,16 @@ from src.database.migration_safety import validate_live_migration_safety
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_TABLES = {
-    "users",
+    "residents",
+    "bql_staff",
+    "resident_unit_memberships",
     "units",
     "tickets",
     "ticket_attachments",
+    "ticket_attachment_upload_sessions",
+    "ticket_status_history",
+    "notifications",
+    "audit_logs",
     "ai_analysis_runs",
     "ticket_scoring_results",
 }

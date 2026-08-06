@@ -1,4 +1,4 @@
-"""User-to-unit membership persistence model."""
+"""Resident-to-unit membership persistence model."""
 
 from __future__ import annotations
 
@@ -13,22 +13,22 @@ from sqlalchemy.types import Uuid
 from src.database.base import Base
 
 if TYPE_CHECKING:
+    from src.database.models.resident import Resident
     from src.database.models.unit import Unit
-    from src.database.models.user import User
 
 
-class UserUnitMembership(Base):
-    """Link between a user account and a physical unit."""
+class ResidentUnitMembership(Base):
+    """Link between a resident profile and a physical unit."""
 
-    __tablename__ = "user_unit_memberships"
+    __tablename__ = "resident_unit_memberships"
     __table_args__ = (
-        UniqueConstraint("user_id", "unit_id", name="uq_user_unit_memberships_user_unit"),
-        Index("ix_user_unit_memberships_user_active", "user_id", "is_active"),
-        Index("ix_user_unit_memberships_unit_active", "unit_id", "is_active"),
+        UniqueConstraint("resident_id", "unit_id", name="uq_resident_unit_memberships_resident_unit"),
+        Index("ix_resident_unit_memberships_resident_active", "resident_id", "is_active"),
+        Index("ix_resident_unit_memberships_unit_active", "unit_id", "is_active"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    resident_id: Mapped[UUID] = mapped_column(ForeignKey("residents.id", ondelete="RESTRICT"), nullable=False)
     unit_id: Mapped[UUID] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
     linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -41,5 +41,5 @@ class UserUnitMembership(Base):
         onupdate=func.now(),
     )
 
-    user: Mapped[User] = relationship(back_populates="unit_memberships")
-    unit: Mapped[Unit] = relationship(back_populates="user_memberships")
+    resident: Mapped[Resident] = relationship(back_populates="unit_memberships")
+    unit: Mapped[Unit] = relationship(back_populates="resident_memberships")

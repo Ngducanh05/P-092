@@ -18,8 +18,8 @@ REQUIRED_NAMES = (
 
 OPTIONAL_TOKEN_NAMES = (
     "SUPABASE_TEST_RESIDENT_ACCESS_TOKEN",
+    "SUPABASE_TEST_BQL_ACCESS_TOKEN",
     "SUPABASE_TEST_COORDINATOR_ACCESS_TOKEN",
-    "SUPABASE_TEST_TECHNICIAN_ACCESS_TOKEN",
 )
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".env"
@@ -28,7 +28,8 @@ ENV_FILE = ROOT / ".env"
 def main() -> int:
     for name in (*REQUIRED_NAMES, *OPTIONAL_TOKEN_NAMES):
         status = "PRESENT" if _is_present(name) else "MISSING"
-        print(f"{name}: {status}")
+        suffix = " (deprecated; use SUPABASE_TEST_BQL_ACCESS_TOKEN)" if name == "SUPABASE_TEST_COORDINATOR_ACCESS_TOKEN" else ""
+        print(f"{name}: {status}{suffix}")
     return 0
 
 

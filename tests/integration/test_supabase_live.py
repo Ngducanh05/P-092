@@ -1,4 +1,4 @@
-"""Opt-in live Supabase validation for T-006/T-007."""
+﻿"""Opt-in live Supabase validation for T-006/T-007."""
 
 from __future__ import annotations
 
@@ -32,24 +32,24 @@ BASE_REQUIRED = {
     "SUPABASE_STORAGE_BUCKET": "supabase_storage_bucket",
 }
 BUSINESS_TABLES = {
-    "users",
+    "residents",
+    "bql_staff",
     "units",
-    "user_unit_memberships",
+    "resident_unit_memberships",
     "tickets",
     "ticket_attachments",
     "ticket_attachment_upload_sessions",
     "ticket_status_history",
-    "ticket_assignments",
     "notifications",
     "audit_logs",
 }
 FINAL_POLICY_NAMES = {
-    "rls_users_select_own_profile",
-    "rls_memberships_select_own_active",
-    "rls_units_select_own_active_membership",
+    "rls_residents_select_own_profile",
+    "rls_bql_staff_select_own_profile",
+    "rls_resident_unit_memberships_select_own_active",
+    "rls_units_select_resident_active_membership",
     "rls_tickets_resident_select_owned",
-    "rls_tickets_technician_select_assigned",
-    "rls_tickets_coordinator_select_all_mvp",
+    "rls_tickets_bql_select_all_mvp",
     "rls_ticket_attachments_select_authorized_parent",
     "rls_ticket_attachment_upload_sessions_deny_all_client_access",
 }
@@ -71,7 +71,7 @@ class LiveContext:
     attachment_ids: list[UUID] = field(default_factory=list)
     upload_session_ids: list[UUID] = field(default_factory=list)
     storage_paths: list[str] = field(default_factory=list)
-    created_public_user_ids: list[UUID] = field(default_factory=list)
+    created_resident_ids: list[UUID] = field(default_factory=list)
 
     def cleanup(self) -> None:
         with self.engine.begin() as connection:
@@ -86,11 +86,11 @@ class LiveContext:
                 connection.execute(text("DELETE FROM ticket_status_history WHERE ticket_id = :id"), {"id": ticket_id})
                 connection.execute(text("DELETE FROM tickets WHERE id = :id"), {"id": ticket_id})
             for membership_id in self.membership_ids:
-                connection.execute(text("DELETE FROM user_unit_memberships WHERE id = :id"), {"id": membership_id})
+                connection.execute(text("DELETE FROM resident_unit_memberships WHERE id = :id"), {"id": membership_id})
             for unit_id in self.unit_ids:
                 connection.execute(text("DELETE FROM units WHERE id = :id"), {"id": unit_id})
-            for user_id in self.created_public_user_ids:
-                connection.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+            for user_id in self.created_resident_ids:
+                connection.execute(text("DELETE FROM residents WHERE id = :id"), {"id": user_id})
         self._cleanup_storage_objects()
 
     def _cleanup_storage_objects(self) -> None:
@@ -171,8 +171,8 @@ def resident_token(live_settings: Settings) -> str:
 
 
 @pytest.fixture()
-def coordinator_token(live_settings: Settings) -> str:
-    return _require_token("SUPABASE_TEST_COORDINATOR_ACCESS_TOKEN")
+def bql_token(live_settings: Settings) -> str:
+    return _require_token("SUPABASE_TEST_BQL_ACCESS_TOKEN")
 
 
 @pytest.fixture()
@@ -182,12 +182,12 @@ def resident_context(
     live_context: LiveContext,
     resident_token: str,
 ) -> ResidentContext:
-    existed_before = _public_user_exists(db_engine, _token_subject(resident_token))
+    existed_before = _resident_exists(db_engine, _token_subject(resident_token))
     response = api_client.get("/api/v1/auth/me", headers=_bearer(resident_token))
     assert response.status_code == 200
     user_id = UUID(response.json()["id"])
     if not existed_before:
-        live_context.created_public_user_ids.append(user_id)
+        live_context.created_resident_ids.append(user_id)
 
     unit_id = uuid4()
     unowned_unit_id = uuid4()
@@ -216,11 +216,11 @@ def resident_context(
         connection.execute(
             text(
                 """
-                INSERT INTO user_unit_memberships (id, user_id, unit_id, is_active)
-                VALUES (:id, :user_id, :unit_id, true)
+                INSERT INTO resident_unit_memberships (id, resident_id, unit_id, is_active)
+                VALUES (:id, :resident_id, :unit_id, true)
                 """
             ),
-            {"id": membership_id, "user_id": user_id, "unit_id": unit_id},
+            {"id": membership_id, "resident_id": user_id, "unit_id": unit_id},
         )
         connection.execute(
             text(
@@ -259,12 +259,12 @@ def resident_context(
 
 
 @pytest.fixture(scope="session")
-def coordinator_profile(live_context: LiveContext, db_engine: Engine, coordinator_token: str) -> UUID:
-    user_id = _token_subject(coordinator_token)
+def bql_profile(live_context: LiveContext, db_engine: Engine, bql_token: str) -> UUID:
+    user_id = _token_subject(bql_token)
     with db_engine.connect() as connection:
-        role = connection.scalar(text("SELECT role FROM users WHERE id = :id"), {"id": user_id})
-    if role != "coordinator":
-        pytest.fail("SUPABASE_TEST_COORDINATOR_ACCESS_TOKEN profile is not provisioned as coordinator.")
+        exists = connection.scalar(text("SELECT true FROM bql_staff WHERE id = :id"), {"id": user_id})
+    if not exists:
+        pytest.fail("SUPABASE_TEST_BQL_ACCESS_TOKEN profile is not provisioned as BQL.")
     return user_id
 
 
@@ -363,18 +363,17 @@ def test_required_tables_exist(db_engine: Engine):
     assert BUSINESS_TABLES <= names
 
 
-def test_users_auth_constraints_exist(db_engine: Engine):
+def test_profile_auth_constraints_exist(db_engine: Engine):
     with db_engine.connect() as connection:
-        row = connection.execute(
+        rows = connection.execute(
             text(
                 """
                 SELECT convalidated, confrelid::regclass::text AS referenced_table
                 FROM pg_constraint
-                WHERE conname = 'fk_users_id_auth_users'
-                  AND conrelid = 'public.users'::regclass
+                WHERE conname IN ('fk_residents_id_auth_users', 'fk_bql_staff_id_auth_users')
                 """
             )
-        ).one()
+        ).all()
         index_defs = "\n".join(
             connection.scalars(
                 text(
@@ -382,16 +381,16 @@ def test_users_auth_constraints_exist(db_engine: Engine):
                     SELECT indexdef
                     FROM pg_indexes
                     WHERE schemaname = 'public'
-                      AND indexname IN ('ix_users_email_not_null', 'ix_users_phone_number_not_null')
+                      AND indexname IN ('ix_residents_phone_number', 'ix_bql_staff_email')
                     """
                 )
             )
         )
 
-    assert row.convalidated is True
-    assert row.referenced_table == "auth.users"
-    assert "WHERE (email IS NOT NULL)" in index_defs
-    assert "WHERE (phone_number IS NOT NULL)" in index_defs
+    assert len(rows) == 2
+    assert all(row.referenced_table == "auth.users" for row in rows)
+    assert "ix_residents_phone_number" in index_defs
+    assert "ix_bql_staff_email" in index_defs
 
 
 def test_rls_enabled_on_business_tables(db_engine: Engine):
@@ -432,7 +431,7 @@ def test_final_rls_policies_exist(db_engine: Engine):
 
 def test_anonymous_cannot_read_business_tables(live_settings: Settings):
     headers = {"apikey": live_settings.supabase_publishable_key}
-    for table_name in ("users", "units", "tickets", "ticket_attachments"):
+    for table_name in ("residents", "bql_staff", "units", "tickets", "ticket_attachments"):
         response = httpx.get(
             f"{live_settings.supabase_url.rstrip('/')}/rest/v1/{table_name}",
             params={"select": "id", "limit": "1"},
@@ -498,29 +497,29 @@ def test_resident_cannot_use_unowned_unit(
     assert response.status_code == 404
 
 
-def test_coordinator_auth_me(api_client: TestClient, coordinator_profile: UUID, coordinator_token: str):
-    response = api_client.get("/api/v1/auth/me", headers=_bearer(coordinator_token))
+def test_bql_auth_me(api_client: TestClient, bql_profile: UUID, bql_token: str):
+    response = api_client.get("/api/v1/auth/me", headers=_bearer(bql_token))
 
     assert response.status_code == 200
-    assert UUID(response.json()["id"]) == coordinator_profile
-    assert response.json()["role"] == "coordinator"
+    assert UUID(response.json()["id"]) == bql_profile
+    assert response.json()["actor_type"] == "bql"
 
 
-def test_coordinator_can_read_ticket(
+def test_bql_can_read_ticket(
     api_client: TestClient,
-    coordinator_profile: UUID,
+    bql_profile: UUID,
     resident_context: ResidentContext,
-    coordinator_token: str,
+    bql_token: str,
 ):
-    response = api_client.get(f"/api/v1/tickets/{resident_context.unowned_ticket_id}", headers=_bearer(coordinator_token))
+    response = api_client.get(f"/api/v1/tickets/{resident_context.unowned_ticket_id}", headers=_bearer(bql_token))
 
-    assert coordinator_profile
+    assert bql_profile
     assert response.status_code == 200
     assert response.json()["id"] == str(resident_context.unowned_ticket_id)
 
 
-def test_non_coordinator_cannot_call_coordinator_route(api_client: TestClient, resident_token: str):
-    response = api_client.get("/api/v1/coordinator/tickets", headers=_bearer(resident_token))
+def test_non_bql_cannot_call_bql_route(api_client: TestClient, resident_token: str):
+    response = api_client.get("/api/v1/bql/tickets", headers=_bearer(resident_token))
 
     assert response.status_code == 403
 
@@ -537,11 +536,11 @@ def test_upload_small_png(upload_flow: UploadFlow):
 def test_upload_session_created(db_engine: Engine, upload_flow: UploadFlow):
     with db_engine.connect() as connection:
         row = connection.execute(
-            text("SELECT owner_user_id, status FROM ticket_attachment_upload_sessions WHERE id = :id"),
+            text("SELECT resident_id, status FROM ticket_attachment_upload_sessions WHERE id = :id"),
             {"id": upload_flow.upload_id},
         ).one()
 
-    assert row.owner_user_id == upload_flow.resident.user_id
+    assert row.resident_id == upload_flow.resident.user_id
     assert row.status in {"pending", "consumed"}
 
 
@@ -620,20 +619,20 @@ def test_security_invoker_views_exist(db_engine: Engine):
                     JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
                     WHERE pg_namespace.nspname = 'public'
                       AND pg_class.relkind = 'v'
-                      AND pg_class.relname IN ('resident_ticket_view', 'technician_ticket_view')
+                      AND pg_class.relname IN ('resident_ticket_view')
                     """
                 )
             )
         )
 
-    assert set(options) == {"resident_ticket_view", "technician_ticket_view"}
+    assert set(options) == {"resident_ticket_view"}
     assert all("security_invoker=true" in (value or "") for value in options.values())
 
 
 def _require_token(name: str) -> str:
     token = os.getenv(name)
     if not token:
-        pytest.skip(f"BLOCKED — MISSING TEST TOKEN: {name}")
+        pytest.skip(f"BLOCKED â€” MISSING TEST TOKEN: {name}")
     return token
 
 
@@ -658,9 +657,9 @@ def _token_subject(token: str) -> UUID:
     return UUID(str(claims["sub"]))
 
 
-def _public_user_exists(engine: Engine, user_id: UUID) -> bool:
+def _resident_exists(engine: Engine, user_id: UUID) -> bool:
     with engine.connect() as connection:
-        return bool(connection.scalar(text("SELECT true FROM users WHERE id = :id"), {"id": user_id}))
+        return bool(connection.scalar(text("SELECT true FROM residents WHERE id = :id"), {"id": user_id}))
 
 
 def _upload_to_signed_target(settings: Settings, storage_path: str, upload_body: dict[str, object]) -> int:
@@ -695,3 +694,4 @@ def _absolute_storage_url(settings: Settings, signed_url: str) -> str:
     if signed_url.startswith("/"):
         return f"{settings.supabase_url.rstrip('/')}/storage/v1{signed_url}"
     return f"{settings.supabase_url.rstrip('/')}/storage/v1/{signed_url}"
+

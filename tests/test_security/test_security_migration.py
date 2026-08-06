@@ -1,4 +1,4 @@
-"""Static tests for the Step 6-8 database security migration."""
+"""Static tests for the final Resident/BQL security migration."""
 
 import importlib.util
 import re
@@ -6,16 +6,15 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 VERSIONS_DIR = PROJECT_ROOT / "alembic" / "versions"
-EXPECTED_DOWN_REVISION = "c7a3f2d9e105"
+EXPECTED_DOWN_REVISION = "d4e5f6a7b8c9"
 RLS_TABLES = {
-    "users",
+    "residents",
+    "bql_staff",
+    "resident_unit_memberships",
     "units",
-    "user_unit_memberships",
-    "technician_profiles",
-    "technician_skills",
     "tickets",
     "ticket_attachments",
-    "ticket_assignments",
+    "ticket_attachment_upload_sessions",
     "ticket_status_history",
     "ai_analysis_runs",
     "ticket_scoring_results",
@@ -24,11 +23,11 @@ RLS_TABLES = {
 }
 
 
-def test_exactly_one_security_migration_exists():
+def test_final_actor_cleanup_migration_exists():
     assert len(_migration_files()) == 1
 
 
-def test_security_migration_revision_metadata():
+def test_final_actor_cleanup_revision_metadata():
     module = _load_security_migration()
 
     assert module.down_revision == EXPECTED_DOWN_REVISION
@@ -36,25 +35,44 @@ def test_security_migration_revision_metadata():
     assert callable(module.downgrade)
 
 
-def test_security_migration_enables_and_forces_rls_on_approved_tables():
+def test_final_migration_enables_and_forces_rls_on_approved_tables():
     text = _migration_text()
-    module = _load_security_migration()
 
-    assert set(module.RLS_TABLES) == RLS_TABLES
+    for table_name in RLS_TABLES:
+        assert f'"{table_name}"' in text
     assert "ENABLE ROW LEVEL SECURITY" in text
     assert "FORCE ROW LEVEL SECURITY" in text
-
-
-def test_security_migration_revokes_public_table_access():
-    text = _migration_text()
-    module = _load_security_migration()
-
-    assert set(module.RLS_TABLES) == RLS_TABLES
     assert "REVOKE ALL ON TABLE" in text
     assert "FROM PUBLIC" in text
 
 
-def test_security_migration_has_no_credentials_or_startup_side_effects():
+def test_final_migration_has_preflight_counts_without_private_values():
+    text = _migration_text()
+
+    for counter_name in (
+        "technician_profile_count",
+        "technician_skill_count",
+        "ticket_assignment_count",
+        "invalid_ticket_count",
+        "invalid_upload_session_count",
+    ):
+        assert counter_name in text
+    assert "SELECT *" not in text
+
+
+def test_final_migration_removes_technician_and_generic_user_artifacts():
+    text = _migration_text()
+
+    assert "DROP VIEW IF EXISTS public.technician_ticket_view" in text
+    assert "DROP TABLE IF EXISTS public.ticket_assignments" in text
+    assert "DROP TABLE IF EXISTS public.technician_skills" in text
+    assert "DROP TABLE IF EXISTS public.technician_profiles" in text
+    assert 'op.drop_table("user_unit_memberships")' in text
+    assert 'op.drop_table("users")' in text
+    assert "DROP TYPE IF EXISTS role_enum" in text
+
+
+def test_final_migration_has_no_credentials_or_startup_side_effects():
     text = _migration_text().lower()
 
     forbidden = ["postgresql://", "supabase.co", "service_role", "password", "access_token", "authorization"]
@@ -65,18 +83,8 @@ def test_security_migration_has_no_credentials_or_startup_side_effects():
     assert "src.database" not in text
 
 
-def test_security_migration_downgrade_removes_views_and_rls():
-    text = _migration_text()
-
-    assert "DROP VIEW IF EXISTS technician_ticket_view" in text
-    assert "DROP VIEW IF EXISTS resident_ticket_view" in text
-    assert "DROP POLICY IF EXISTS" in text
-    assert "NO FORCE ROW LEVEL SECURITY" in text
-    assert "DISABLE ROW LEVEL SECURITY" in text
-
-
 def _migration_files() -> list[Path]:
-    return sorted(VERSIONS_DIR.glob("*_add_database_security_policies_and_views.py"))
+    return sorted(VERSIONS_DIR.glob("*_remove_generic_users_and_technician_workflow.py"))
 
 
 def _migration_text() -> str:

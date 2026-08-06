@@ -20,7 +20,7 @@ REQUIRED_DOCS = {
     "migration-guide.md",
     "final-database-report.md",
 }
-ACTORS = ("RESIDENT", "TECHNICIAN", "COORDINATOR", "ADMIN", "SYSTEM / AI", "SERVICE ROLE", "ANONYMOUS")
+ACTORS = ("RESIDENT", "BQL", "SYSTEM / AI", "SERVICE ROLE", "ANONYMOUS")
 RISKS = (
     "unit_id",
     "unassigned UUID",
@@ -33,10 +33,9 @@ RISKS = (
     "AI receives",
     "SQL injection",
     "IDOR",
-    "Missing coordinator scope",
+    "BQL system-wide MVP read",
     "View owner",
     "Deactivated users",
-    "Ended assignment",
     "Unlinked membership",
     "RLS denies service",
     "Service role bypasses",
@@ -68,4 +67,4 @@ def test_final_report_marks_live_postgresql_not_tested():
     text = (DOCS_DIR / "final-database-report.md").read_text(encoding="utf-8")
 
     assert "NOT TESTED ON LIVE POSTGRESQL" in text
-    assert "REQUIRES BUSINESS CLARIFICATION" in text
+    assert "Legacy ticket status values" in text

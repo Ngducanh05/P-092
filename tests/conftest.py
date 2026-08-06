@@ -12,11 +12,12 @@ from src.database.base import Base
 from src.main import app
 
 TEST_TABLES = [
-    Base.metadata.tables["users"],
+    Base.metadata.tables["residents"],
+    Base.metadata.tables["bql_staff"],
     Base.metadata.tables["units"],
+    Base.metadata.tables["resident_unit_memberships"],
     Base.metadata.tables["tickets"],
     Base.metadata.tables["ticket_attachments"],
-    Base.metadata.tables["user_unit_memberships"],
     Base.metadata.tables["ticket_status_history"],
     Base.metadata.tables["ticket_attachment_upload_sessions"],
 ]

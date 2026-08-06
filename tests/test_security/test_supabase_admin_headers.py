@@ -45,7 +45,7 @@ def test_blank_key_raises_safe_configuration_error(secret_key):
 def test_admin_http_clients_use_shared_helper():
     storage_text = (PROJECT_ROOT / "src" / "services" / "storage_service.py").read_text(encoding="utf-8")
     setup_text = (PROJECT_ROOT / "scripts" / "setup_supabase_storage.py").read_text(encoding="utf-8")
-    provision_text = (PROJECT_ROOT / "scripts" / "provision_supabase_user.py").read_text(encoding="utf-8")
+    provision_text = (PROJECT_ROOT / "scripts" / "provision_bql_staff.py").read_text(encoding="utf-8")
 
     for text in (storage_text, setup_text, provision_text):
         assert "build_supabase_admin_headers" in text

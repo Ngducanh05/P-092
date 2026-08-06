@@ -1,4 +1,4 @@
-"""Metadata tests for database ORM models."""
+"""Metadata tests for final database ORM models."""
 
 import inspect as python_inspect
 
@@ -7,34 +7,62 @@ from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 
 from src.database.base import Base
-from src.database.models import AIAnalysisRun, Ticket, TicketAttachmentUploadSession, TicketScoringResult
-from src.models.enums import Category, Priority, Role, Severity, TicketStatus
+from src.database.models import (
+    AIAnalysisRun,
+    BQLStaff,
+    Resident,
+    Ticket,
+    TicketAttachmentUploadSession,
+    TicketScoringResult,
+)
+from src.models.enums import Category, Priority, Severity, TicketStatus
 
 EXPECTED_TABLES = {
-    "users",
+    "residents",
+    "bql_staff",
+    "resident_unit_memberships",
     "units",
     "tickets",
     "ticket_attachments",
     "ticket_attachment_upload_sessions",
+    "ticket_status_history",
+    "notifications",
+    "audit_logs",
     "ai_analysis_runs",
     "ticket_scoring_results",
 }
+REMOVED_TABLES = {"users", "technician_profiles", "technician_skills", "ticket_assignments"}
 
 
 def test_all_orm_models_import_successfully():
-    from src.database.models import TicketAttachment, Unit, User
+    from src.database.models import (
+        AuditLog,
+        Notification,
+        ResidentUnitMembership,
+        TicketAttachment,
+        TicketStatusHistory,
+        Unit,
+    )
 
-    assert User.__tablename__ == "users"
+    assert Resident.__tablename__ == "residents"
+    assert BQLStaff.__tablename__ == "bql_staff"
+    assert ResidentUnitMembership.__tablename__ == "resident_unit_memberships"
     assert Unit.__tablename__ == "units"
     assert Ticket.__tablename__ == "tickets"
     assert TicketAttachment.__tablename__ == "ticket_attachments"
     assert TicketAttachmentUploadSession.__tablename__ == "ticket_attachment_upload_sessions"
+    assert TicketStatusHistory.__tablename__ == "ticket_status_history"
+    assert Notification.__tablename__ == "notifications"
+    assert AuditLog.__tablename__ == "audit_logs"
     assert AIAnalysisRun.__tablename__ == "ai_analysis_runs"
     assert TicketScoringResult.__tablename__ == "ticket_scoring_results"
 
 
 def test_expected_tables_registered_in_metadata():
-    assert EXPECTED_TABLES <= set(Base.metadata.tables)
+    names = set(Base.metadata.tables)
+
+    assert EXPECTED_TABLES <= names
+    assert REMOVED_TABLES.isdisjoint(names)
 
 
 def test_every_expected_table_has_primary_key():
@@ -44,43 +72,39 @@ def test_every_expected_table_has_primary_key():
 
 def test_expected_foreign_keys_exist():
     expected = {
-        ("tickets", "resident_id", "users.id", "RESTRICT"),
+        ("resident_unit_memberships", "resident_id", "residents.id", "RESTRICT"),
+        ("resident_unit_memberships", "unit_id", "units.id", "RESTRICT"),
+        ("tickets", "resident_id", "residents.id", "RESTRICT"),
         ("tickets", "unit_id", "units.id", "RESTRICT"),
         ("ticket_attachments", "ticket_id", "tickets.id", "CASCADE"),
-        ("ticket_attachment_upload_sessions", "owner_user_id", "users.id", "RESTRICT"),
+        ("ticket_attachment_upload_sessions", "resident_id", "residents.id", "RESTRICT"),
+        ("ticket_status_history", "ticket_id", "tickets.id", "CASCADE"),
+        ("notifications", "ticket_id", "tickets.id", "SET NULL"),
         ("ai_analysis_runs", "ticket_id", "tickets.id", "CASCADE"),
         ("ticket_scoring_results", "ticket_id", "tickets.id", "CASCADE"),
         ("ticket_scoring_results", "ai_analysis_run_id", "ai_analysis_runs.id", "SET NULL"),
     }
-    actual = set()
-
-    for table in Base.metadata.tables.values():
-        for foreign_key in table.foreign_keys:
-            actual.add(
-                (
-                    table.name,
-                    foreign_key.parent.name,
-                    foreign_key.target_fullname,
-                    foreign_key.ondelete,
-                )
-            )
+    actual = {
+        (table.name, foreign_key.parent.name, foreign_key.target_fullname, foreign_key.ondelete)
+        for table in Base.metadata.tables.values()
+        for foreign_key in table.foreign_keys
+    }
 
     assert expected <= actual
 
 
-def test_users_contact_columns_support_supabase_auth_profiles():
-    users = Base.metadata.tables["users"]
-    index_names = {index.name for index in users.indexes}
-    constraints = _check_constraints("users")
+def test_profile_tables_support_supabase_auth_profiles():
+    residents = Base.metadata.tables["residents"]
+    bql_staff = Base.metadata.tables["bql_staff"]
+    constraints = _check_constraints("residents")
 
-    assert users.c.id.default is None
-    assert users.c.email.nullable is True
-    assert users.c.phone_number.nullable is True
-    assert users.c.full_name.nullable is True
-    assert "ix_users_email_not_null" in index_names
-    assert "ix_users_phone_number_not_null" in index_names
-    assert "ck_users_email_or_phone" in constraints
-    assert "ck_users_phone_number_e164" in constraints
+    assert residents.c.id.default is None
+    assert residents.c.phone_number.nullable is False
+    assert residents.c.full_name.nullable is True
+    assert bql_staff.c.id.default is None
+    assert bql_staff.c.email.nullable is False
+    assert bql_staff.c.full_name.nullable is True
+    assert "ck_residents_phone_number_e164" in constraints
 
 
 def test_tickets_description_is_required():
@@ -98,7 +122,7 @@ def test_ticket_enum_columns_use_shared_enum_classes():
     assert tickets.c.priority.type.enum_class is Priority
 
 
-def test_stable_sql_enum_names_are_present():
+def test_stable_sql_enum_names_are_present_without_role_enum():
     enum_names = {
         column.type.name
         for table in Base.metadata.tables.values()
@@ -106,13 +130,8 @@ def test_stable_sql_enum_names_are_present():
         if isinstance(column.type, SQLEnum)
     }
 
-    assert {"role_enum", "ticket_status_enum", "category_enum", "severity_enum", "priority_enum"} <= enum_names
-
-
-def test_user_role_enum_uses_shared_role_class():
-    users = Base.metadata.tables["users"]
-
-    assert users.c.role.type.enum_class is Role
+    assert {"ticket_status_enum", "category_enum", "severity_enum", "priority_enum"} <= enum_names
+    assert "role_enum" not in enum_names
 
 
 def test_ai_analysis_confidence_range_constraint_exists():
@@ -158,19 +177,19 @@ def test_json_list_fields_use_postgresql_jsonb():
 def test_no_duplicate_enum_classes_declared_inside_database_models():
     import src.database.models.ai_analysis as ai_analysis_module
     import src.database.models.attachment as attachment_module
+    import src.database.models.resident as resident_module
     import src.database.models.scoring_result as scoring_result_module
     import src.database.models.ticket as ticket_module
     import src.database.models.unit as unit_module
-    import src.database.models.user as user_module
 
-    allowed = {Category, Priority, Role, Severity, TicketStatus}
+    allowed = {Category, Priority, Severity, TicketStatus}
     for module in (
         ai_analysis_module,
         attachment_module,
         scoring_result_module,
+        resident_module,
         ticket_module,
         unit_module,
-        user_module,
     ):
         declared_enums = [
             member

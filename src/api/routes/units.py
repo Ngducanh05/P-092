@@ -5,16 +5,27 @@ from sqlalchemy.orm import Session
 
 from src.api.dependencies.database import get_db
 from src.api.dependencies.roles import require_resident
-from src.database.models.user import User
+from src.api.openapi_responses import AUTHENTICATED_RESPONSES
+from src.database.models.resident import Resident
 from src.models.api.units import UnitResponse
 from src.repositories.unit_repository import UnitRepository
 
 router = APIRouter()
 
 
-@router.get("/my", response_model=list[UnitResponse])
-def my_units(user: User = Depends(require_resident), db: Session = Depends(get_db)) -> list[UnitResponse]:
-    units = UnitRepository(db).list_active_memberships_for_user(user.id)
+@router.get(
+    "/my",
+    response_model=list[UnitResponse],
+    summary="List my active units",
+    description=(
+        "Resident-only endpoint. Returns active unit memberships for the authenticated resident. These memberships "
+        "control which tickets the resident can create and read."
+    ),
+    operation_id="list_my_units",
+    responses=AUTHENTICATED_RESPONSES,
+)
+def my_units(resident: Resident = Depends(require_resident), db: Session = Depends(get_db)) -> list[UnitResponse]:
+    units = UnitRepository(db).list_active_memberships_for_resident(resident.id)
     return [
         UnitResponse(
             unit_id=unit.id,

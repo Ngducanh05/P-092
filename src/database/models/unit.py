@@ -13,8 +13,8 @@ from sqlalchemy.types import Uuid
 from src.database.base import Base
 
 if TYPE_CHECKING:
+    from src.database.models.resident_unit_membership import ResidentUnitMembership
     from src.database.models.ticket import Ticket
-    from src.database.models.user_unit_membership import UserUnitMembership
 
 
 class Unit(Base):
@@ -30,4 +30,4 @@ class Unit(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
     tickets: Mapped[list[Ticket]] = relationship(back_populates="unit")
-    user_memberships: Mapped[list[UserUnitMembership]] = relationship(back_populates="unit")
+    resident_memberships: Mapped[list[ResidentUnitMembership]] = relationship(back_populates="unit")

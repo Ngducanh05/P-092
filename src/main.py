@@ -6,13 +6,51 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from src.api.openapi_responses import INTERNAL_SERVER_ERROR_RESPONSE
 from src.api.router import api_router
 from src.config import get_settings
 from src.database.session import engine
 from src.models.api.errors import INTERNAL_ERROR, DomainError
+from src.models.api.health import HealthResponse, ReadinessResponse
 from src.services.readiness_service import ReadinessService
 
 logger = logging.getLogger(__name__)
+
+settings = get_settings()
+
+OPENAPI_DESCRIPTION = """
+FixIt Agent API is the MVP backend for apartment maintenance reporting.
+
+Residents use the API to view active unit memberships, request private attachment
+upload targets, create maintenance tickets, list their accessible tickets, and
+retrieve short-lived attachment download URLs.
+
+BQL staff use the API to read the system-wide ticket list for the current MVP.
+
+Authentication for protected endpoints uses Supabase Bearer access tokens:
+`Authorization: Bearer <SUPABASE_ACCESS_TOKEN>`. In Swagger UI, use the
+Authorize button and paste only an access token, for example
+`eyJ...supabase-access-token`. Do not use Supabase secret or service-role keys.
+"""
+
+
+def openapi_tags() -> list[dict[str, str]]:
+    tags = [
+        {"name": "Health", "description": "Public liveness and readiness checks."},
+        {"name": "Auth", "description": "Authenticated Resident or BQL actor context."},
+        {"name": "Units", "description": "Resident unit membership APIs."},
+        {"name": "Storage", "description": "Private Supabase Storage signed upload targets for ticket attachments."},
+        {"name": "Tickets", "description": "Resident ticket creation, listing, detail, and attachment download APIs."},
+        {"name": "BQL", "description": "BQL read APIs for the MVP ticket queue."},
+    ]
+    if settings.enable_legacy_agent_routes and settings.app_env == "development":
+        tags.append(
+            {
+                "name": "Agent Legacy",
+                "description": "Development-only legacy starter Agent routes guarded by a feature flag.",
+            }
+        )
+    return tags
 
 
 @asynccontextmanager
@@ -26,12 +64,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="FixIt Agent API",
-    description="Backend API for resident incident reporting and ticket operations",
+    description=OPENAPI_DESCRIPTION,
     version="1.0.0",
+    openapi_tags=openapi_tags(),
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
     lifespan=lifespan,
 )
 
-settings = get_settings()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.parsed_cors_origins,
@@ -92,13 +133,42 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
     )
 
 
-@app.get("/health")
-async def health():
+@app.get(
+    "/health",
+    tags=["Health"],
+    response_model=HealthResponse,
+    summary="Check API liveness",
+    description=(
+        "Public unauthenticated liveness check. Returns the application name, current environment label, "
+        "and a simple ok status without checking external dependencies."
+    ),
+    operation_id="health_check",
+    responses={500: INTERNAL_SERVER_ERROR_RESPONSE},
+)
+async def health() -> HealthResponse:
     return {"application": settings.app_name, "environment": settings.app_env, "status": "ok"}
 
 
-@app.get("/ready")
-async def ready():
+@app.get(
+    "/ready",
+    tags=["Health"],
+    response_model=ReadinessResponse,
+    summary="Check API readiness",
+    description=(
+        "Public unauthenticated readiness check. It safely reports database, migration, Supabase Auth, "
+        "and Supabase Storage configuration statuses without exposing hostnames, URLs, credentials, "
+        "stack traces, or internal exception messages."
+    ),
+    operation_id="readiness_check",
+    responses={
+        503: {
+            "model": ReadinessResponse,
+            "description": "A required dependency is missing, unavailable, or not ready.",
+        },
+        500: INTERNAL_SERVER_ERROR_RESPONSE,
+    },
+)
+async def ready() -> ReadinessResponse | JSONResponse:
     payload, status_code = ReadinessService(settings, engine).check()
     if status_code != 200:
         return JSONResponse(status_code=status_code, content=payload)

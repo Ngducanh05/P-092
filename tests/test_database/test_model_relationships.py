@@ -1,22 +1,33 @@
-"""Relationship tests for database ORM models."""
+"""Relationship tests for final database ORM models."""
 
 from sqlalchemy import inspect
 from sqlalchemy.orm import RelationshipDirection
 
-from src.database.models import AIAnalysisRun, Ticket, TicketAttachment, TicketScoringResult, Unit, User
+from src.database.models import (
+    AIAnalysisRun,
+    Resident,
+    ResidentUnitMembership,
+    Ticket,
+    TicketAttachment,
+    TicketScoringResult,
+    Unit,
+)
 
 
 def test_relationships_have_matching_back_populates():
     expected = {
-        User: {"tickets": "resident"},
-        Unit: {"tickets": "unit"},
+        Resident: {"tickets": "resident", "unit_memberships": "resident"},
+        Unit: {"tickets": "unit", "resident_memberships": "unit"},
         Ticket: {
             "resident": "tickets",
             "unit": "tickets",
             "attachments": "ticket",
             "ai_analysis_runs": "ticket",
             "scoring_results": "ticket",
+            "status_history": "ticket",
+            "notifications": "ticket",
         },
+        ResidentUnitMembership: {"resident": "unit_memberships", "unit": "resident_memberships"},
         TicketAttachment: {"ticket": "attachments"},
         AIAnalysisRun: {"ticket": "ai_analysis_runs", "scoring_results": "ai_analysis_run"},
         TicketScoringResult: {"ticket": "scoring_results", "ai_analysis_run": "scoring_results"},
@@ -29,8 +40,8 @@ def test_relationships_have_matching_back_populates():
 
 
 def test_relationship_directions_and_collection_behavior():
-    assert _relationship(User, "tickets").direction is RelationshipDirection.ONETOMANY
-    assert _relationship(User, "tickets").uselist is True
+    assert _relationship(Resident, "tickets").direction is RelationshipDirection.ONETOMANY
+    assert _relationship(Resident, "tickets").uselist is True
     assert _relationship(Unit, "tickets").direction is RelationshipDirection.ONETOMANY
     assert _relationship(Unit, "tickets").uselist is True
 
@@ -45,7 +56,11 @@ def test_relationship_directions_and_collection_behavior():
     assert _relationship(Ticket, "ai_analysis_runs").uselist is True
     assert _relationship(Ticket, "scoring_results").direction is RelationshipDirection.ONETOMANY
     assert _relationship(Ticket, "scoring_results").uselist is True
+    assert _relationship(Ticket, "status_history").direction is RelationshipDirection.ONETOMANY
+    assert _relationship(Ticket, "status_history").uselist is True
 
+    assert _relationship(ResidentUnitMembership, "resident").direction is RelationshipDirection.MANYTOONE
+    assert _relationship(ResidentUnitMembership, "unit").direction is RelationshipDirection.MANYTOONE
     assert _relationship(TicketAttachment, "ticket").direction is RelationshipDirection.MANYTOONE
     assert _relationship(TicketAttachment, "ticket").uselist is False
     assert _relationship(AIAnalysisRun, "ticket").direction is RelationshipDirection.MANYTOONE
@@ -59,15 +74,15 @@ def test_relationship_directions_and_collection_behavior():
 
 
 def test_ticket_owned_child_relationships_use_delete_orphan_cascade():
-    for relationship_name in ("attachments", "ai_analysis_runs", "scoring_results"):
+    for relationship_name in ("attachments", "ai_analysis_runs", "scoring_results", "status_history"):
         cascade = _relationship(Ticket, relationship_name).cascade
         assert "delete" in cascade
         assert "delete-orphan" in cascade
 
 
-def test_user_and_unit_do_not_cascade_delete_tickets():
-    assert "delete" not in _relationship(User, "tickets").cascade
-    assert "delete-orphan" not in _relationship(User, "tickets").cascade
+def test_resident_and_unit_do_not_cascade_delete_tickets():
+    assert "delete" not in _relationship(Resident, "tickets").cascade
+    assert "delete-orphan" not in _relationship(Resident, "tickets").cascade
     assert "delete" not in _relationship(Unit, "tickets").cascade
     assert "delete-orphan" not in _relationship(Unit, "tickets").cascade
 

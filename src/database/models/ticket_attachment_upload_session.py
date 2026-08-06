@@ -13,7 +13,7 @@ from sqlalchemy.types import Uuid
 from src.database.base import Base
 
 if TYPE_CHECKING:
-    from src.database.models.user import User
+    from src.database.models.resident import Resident
 
 
 class TicketAttachmentUploadSession(Base):
@@ -36,12 +36,12 @@ class TicketAttachmentUploadSession(Base):
         ),
         CheckConstraint("expires_at > created_at", name="ck_ticket_attachment_upload_sessions_expiry_order"),
         UniqueConstraint("storage_path", name="uq_ticket_attachment_upload_sessions_storage_path"),
-        Index("ix_ticket_attachment_upload_sessions_owner_status", "owner_user_id", "status"),
+        Index("ix_ticket_attachment_upload_sessions_resident_status", "resident_id", "status"),
         Index("ix_ticket_attachment_upload_sessions_expires_at", "expires_at"),
     )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    owner_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    resident_id: Mapped[UUID] = mapped_column(ForeignKey("residents.id", ondelete="RESTRICT"), nullable=False)
     storage_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     mime_type: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -58,4 +58,4 @@ class TicketAttachmentUploadSession(Base):
         onupdate=func.now(),
     )
 
-    owner: Mapped[User] = relationship(back_populates="ticket_attachment_upload_sessions")
+    resident: Mapped[Resident] = relationship(back_populates="ticket_attachment_upload_sessions")

@@ -6,12 +6,12 @@ from uuid import uuid4
 import pytest
 
 from src.database.models.attachment import TicketAttachment
+from src.database.models.resident import Resident
+from src.database.models.resident_unit_membership import ResidentUnitMembership
 from src.database.models.ticket import Ticket
 from src.database.models.ticket_attachment_upload_session import TicketAttachmentUploadSession
 from src.database.models.ticket_status_history import TicketStatusHistory
 from src.database.models.unit import Unit
-from src.database.models.user import User
-from src.database.models.user_unit_membership import UserUnitMembership
 from src.models.api.errors import (
     INVALID_ATTACHMENT,
     NO_ACTIVE_UNIT,
@@ -21,7 +21,7 @@ from src.models.api.errors import (
     DomainError,
 )
 from src.models.api.tickets import TicketCreateRequest
-from src.models.enums import Role, TicketStatus
+from src.models.enums import TicketStatus
 from src.services.storage_service import VerifiedStorageObject
 from src.services.ticket_service import TicketService
 
@@ -107,7 +107,7 @@ def test_upload_session_is_locked_verified_persisted_and_consumed(db_session):
 @pytest.mark.parametrize(
     "mutator",
     [
-        lambda session, other_id: setattr(session, "owner_user_id", other_id),
+        lambda session, other_id: setattr(session, "resident_id", other_id),
         lambda session, _other_id: setattr(session, "status", "consumed"),
         lambda session, _other_id: setattr(session, "consumed_at", datetime.now(UTC)),
         lambda session, _other_id: setattr(session, "expires_at", datetime.now(UTC) - timedelta(minutes=1)),
@@ -245,7 +245,7 @@ def _request(**overrides) -> TicketCreateRequest:
     return TicketCreateRequest(**data)
 
 
-def _resident_with_unit(db_session) -> tuple[User, Unit]:
+def _resident_with_unit(db_session) -> tuple[Resident, Unit]:
     resident = _resident()
     unit = _unit("A")
     db_session.add_all([resident, unit, _membership(resident.id, unit.id)])
@@ -253,24 +253,24 @@ def _resident_with_unit(db_session) -> tuple[User, Unit]:
     return resident, unit
 
 
-def _resident() -> User:
-    return User(id=uuid4(), email=f"{uuid4()}@example.com", role=Role.RESIDENT, is_active=True)
+def _resident() -> Resident:
+    return Resident(id=uuid4(), phone_number=f"+8490{uuid4().int % 10_000_000:07d}", is_active=True)
 
 
 def _unit(building: str) -> Unit:
     return Unit(id=uuid4(), building_code=building, floor="10", unit_number="1001", is_active=True)
 
 
-def _membership(user_id, unit_id) -> UserUnitMembership:
-    return UserUnitMembership(id=uuid4(), user_id=user_id, unit_id=unit_id, is_active=True)
+def _membership(resident_id, unit_id) -> ResidentUnitMembership:
+    return ResidentUnitMembership(id=uuid4(), resident_id=resident_id, unit_id=unit_id, is_active=True)
 
 
-def _upload_session(user_id, created_at=None) -> TicketAttachmentUploadSession:
+def _upload_session(resident_id, created_at=None) -> TicketAttachmentUploadSession:
     created = created_at or datetime.now(UTC)
     return TicketAttachmentUploadSession(
         id=uuid4(),
-        owner_user_id=user_id,
-        storage_path=f"tickets/{user_id}/2026/08/{uuid4()}.jpg",
+        resident_id=resident_id,
+        storage_path=f"tickets/{resident_id}/2026/08/{uuid4()}.jpg",
         original_filename="photo.jpg",
         mime_type="image/jpeg",
         file_size=10,

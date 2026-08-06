@@ -12,7 +12,7 @@ SKIP_PARTS = {".git", ".venv", ".pytest_cache", ".ruff_cache", "__pycache__", ".
 PATTERNS = {
     "openai_key": re.compile(r"sk-[A-Za-z0-9_-]{20,}"),
     "ai_log_key": re.compile(r"AI_LOG_API_KEY=[A-Za-z0-9_-]{30,}"),
-    "supabase_secret_key": re.compile(r"sb_secret_[A-Za-z0-9_-]{20,}"),
+    "supabase_secret_key": re.compile(r"(?<![A-Za-z0-9_])sb_secret_[A-Za-z0-9_-]{20,}"),
     "supabase_jwt": re.compile(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}"),
     "database_url_with_password": re.compile(r"postgres(?:ql)?://[^:\s]+:[^@\s]+@"),
 }

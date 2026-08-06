@@ -5,12 +5,12 @@ from pathlib import Path
 from uuid import uuid4
 
 from src.database.models.attachment import TicketAttachment
+from src.database.models.resident import Resident
+from src.database.models.resident_unit_membership import ResidentUnitMembership
 from src.database.models.ticket import Ticket
 from src.database.models.ticket_attachment_upload_session import TicketAttachmentUploadSession
 from src.database.models.unit import Unit
-from src.database.models.user import User
-from src.database.models.user_unit_membership import UserUnitMembership
-from src.models.enums import Category, Priority, Role, TicketStatus
+from src.models.enums import Category, Priority, TicketStatus
 from src.repositories.ticket_repository import TicketRepository
 from src.repositories.unit_repository import UnitRepository
 
@@ -22,8 +22,8 @@ def test_ticket_repository_exposes_scoped_methods_only():
 
     assert "list_resident_accessible_tickets" in text
     assert "get_resident_accessible_ticket" in text
-    assert "list_coordinator_tickets" in text
-    assert "get_ticket_by_id_for_coordinator" in text
+    assert "list_bql_tickets" in text
+    assert "get_ticket_by_id_for_bql" in text
     assert "def list_all" not in text
     assert "def get_any" not in text
 
@@ -31,7 +31,7 @@ def test_ticket_repository_exposes_scoped_methods_only():
 def test_unit_repository_uses_active_membership_predicates():
     text = (PROJECT_ROOT / "src" / "repositories" / "unit_repository.py").read_text(encoding="utf-8")
 
-    assert "UserUnitMembership.is_active.is_(True)" in text
+    assert "ResidentUnitMembership.is_active.is_(True)" in text
     assert "Unit.is_active.is_(True)" in text
 
 
@@ -53,7 +53,7 @@ def test_active_membership_filtering_excludes_inactive_records(db_session):
     )
     db_session.commit()
 
-    units = UnitRepository(db_session).list_active_memberships_for_user(resident.id)
+    units = UnitRepository(db_session).list_active_memberships_for_resident(resident.id)
 
     assert [unit.id for unit in units] == [active_unit.id]
 
@@ -85,7 +85,7 @@ def test_resident_ticket_isolation_order_and_eager_attachments(db_session):
     assert items[0].attachments[0].id == attachment.id
 
 
-def test_coordinator_ordering_filters_and_pagination(db_session):
+def test_bql_ordering_filters_and_pagination(db_session):
     resident, unit = _resident_with_unit(db_session)
     p2_old = _ticket(resident.id, unit.id, "P2 old", priority=Priority.P2, created_at=datetime.now(UTC) - timedelta(days=2))
     p1_new = _ticket(resident.id, unit.id, "P1 new", priority=Priority.P1, created_at=datetime.now(UTC) - timedelta(days=1))
@@ -94,8 +94,8 @@ def test_coordinator_ordering_filters_and_pagination(db_session):
     db_session.add_all([p2_old, p1_new, p2_new, null_priority])
     db_session.commit()
 
-    items, total = TicketRepository(db_session).list_coordinator_tickets(1, 3)
-    water_items, water_total = TicketRepository(db_session).list_coordinator_tickets(1, 10, category=Category.WATER)
+    items, total = TicketRepository(db_session).list_bql_tickets(1, 3)
+    water_items, water_total = TicketRepository(db_session).list_bql_tickets(1, 10, category=Category.WATER)
 
     assert total == 4
     assert [item.id for item in items] == [p1_new.id, p2_old.id, p2_new.id]
@@ -116,7 +116,7 @@ def test_attachment_lookup_and_upload_session_lock_select(db_session):
     )
     upload_session = TicketAttachmentUploadSession(
         id=uuid4(),
-        owner_user_id=resident.id,
+        resident_id=resident.id,
         storage_path=f"tickets/{resident.id}/2026/08/{uuid4()}.jpg",
         original_filename="photo.jpg",
         mime_type="image/jpeg",
@@ -141,16 +141,16 @@ def _resident_with_unit(db_session):
     return resident, unit
 
 
-def _resident() -> User:
-    return User(id=uuid4(), email=f"{uuid4()}@example.com", role=Role.RESIDENT, is_active=True)
+def _resident() -> Resident:
+    return Resident(id=uuid4(), phone_number=f"+8490{uuid4().int % 10_000_000:07d}", is_active=True)
 
 
 def _unit(building_code: str, is_active: bool = True) -> Unit:
     return Unit(id=uuid4(), building_code=building_code, floor="10", unit_number="1001", is_active=is_active)
 
 
-def _membership(user_id, unit_id, is_active: bool = True) -> UserUnitMembership:
-    return UserUnitMembership(id=uuid4(), user_id=user_id, unit_id=unit_id, is_active=is_active)
+def _membership(resident_id, unit_id, is_active: bool = True) -> ResidentUnitMembership:
+    return ResidentUnitMembership(id=uuid4(), resident_id=resident_id, unit_id=unit_id, is_active=is_active)
 
 
 def _ticket(

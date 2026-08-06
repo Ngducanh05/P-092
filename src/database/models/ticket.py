@@ -18,11 +18,10 @@ if TYPE_CHECKING:
     from src.database.models.ai_analysis import AIAnalysisRun
     from src.database.models.attachment import TicketAttachment
     from src.database.models.notification import Notification
+    from src.database.models.resident import Resident
     from src.database.models.scoring_result import TicketScoringResult
-    from src.database.models.ticket_assignment import TicketAssignment
     from src.database.models.ticket_status_history import TicketStatusHistory
     from src.database.models.unit import Unit
-    from src.database.models.user import User
 
 
 def enum_values(enum_class: type[Category] | type[Priority] | type[Severity] | type[TicketStatus]) -> list[str]:
@@ -36,7 +35,7 @@ class Ticket(Base):
     __tablename__ = "tickets"
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    resident_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True)
+    resident_id: Mapped[UUID] = mapped_column(ForeignKey("residents.id", ondelete="RESTRICT"), nullable=False, index=True)
     unit_id: Mapped[UUID] = mapped_column(ForeignKey("units.id", ondelete="RESTRICT"), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
@@ -68,7 +67,7 @@ class Ticket(Base):
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    resident: Mapped[User] = relationship(back_populates="tickets")
+    resident: Mapped[Resident] = relationship(back_populates="tickets")
     unit: Mapped[Unit] = relationship(back_populates="tickets")
     attachments: Mapped[list[TicketAttachment]] = relationship(
         back_populates="ticket",
@@ -79,10 +78,6 @@ class Ticket(Base):
         cascade="all, delete-orphan",
     )
     scoring_results: Mapped[list[TicketScoringResult]] = relationship(
-        back_populates="ticket",
-        cascade="all, delete-orphan",
-    )
-    assignments: Mapped[list[TicketAssignment]] = relationship(
         back_populates="ticket",
         cascade="all, delete-orphan",
     )
