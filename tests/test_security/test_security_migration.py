@@ -46,18 +46,44 @@ def test_final_migration_enables_and_forces_rls_on_approved_tables():
     assert "FROM PUBLIC" in text
 
 
-def test_final_migration_has_preflight_counts_without_private_values():
+def test_final_migration_has_complete_preflight_counts_without_private_values():
     text = _migration_text()
 
     for counter_name in (
+        "resident_count",
+        "copied_resident_count",
+        "coordinator_count",
+        "copied_bql_count",
+        "membership_count",
+        "copied_membership_count",
+        "invalid_membership_count",
+        "invalid_ticket_count",
+        "invalid_upload_session_count",
+        "profile_conflict_count",
         "technician_profile_count",
         "technician_skill_count",
         "ticket_assignment_count",
-        "invalid_ticket_count",
-        "invalid_upload_session_count",
     ):
         assert counter_name in text
+
     assert "SELECT *" not in text
+    assert "RAISE EXCEPTION" in text
+
+
+def test_final_migration_validates_profile_auth_foreign_keys():
+    text = _migration_text()
+
+    assert "VALIDATE CONSTRAINT fk_residents_id_auth_users" in text
+    assert "VALIDATE CONSTRAINT fk_bql_staff_id_auth_users" in text
+
+
+def test_final_migration_adds_shared_auth_user_foreign_keys():
+    text = _migration_text()
+
+    assert "fk_ticket_status_history_changed_by_auth_users" in text
+    assert "fk_notifications_recipient_auth_users" in text
+    assert "fk_audit_logs_actor_auth_users" in text
+    assert "REFERENCES auth.users(id)" in text
 
 
 def test_final_migration_removes_technician_and_generic_user_artifacts():
@@ -72,19 +98,42 @@ def test_final_migration_removes_technician_and_generic_user_artifacts():
     assert "DROP TYPE IF EXISTS role_enum" in text
 
 
+def test_final_migration_installs_explicit_backend_only_denials():
+    names = set(policy_names())
+
+    assert {
+        "rls_ticket_attachment_upload_sessions_deny_all_client_access",
+        "rls_ai_analysis_runs_deny_all_client_access",
+        "rls_ticket_scoring_results_deny_all_client_access",
+        "rls_audit_logs_deny_all_client_access",
+    } <= names
+
+
 def test_final_migration_has_no_credentials_or_startup_side_effects():
     text = _migration_text().lower()
 
-    forbidden = ["postgresql://", "supabase.co", "service_role", "password", "access_token", "authorization"]
+    forbidden = [
+        "postgresql://",
+        "supabase.co",
+        "service_role",
+        "password",
+        "access_token",
+        "authorization",
+    ]
     for value in forbidden:
         assert value not in text
+
     assert "create_all" not in text
     assert "fastapi" not in text
     assert "src.database" not in text
 
 
 def _migration_files() -> list[Path]:
-    return sorted(VERSIONS_DIR.glob("*_remove_generic_users_and_technician_workflow.py"))
+    return sorted(
+        VERSIONS_DIR.glob(
+            "*_remove_generic_users_and_technician_workflow.py"
+        )
+    )
 
 
 def _migration_text() -> str:
@@ -93,9 +142,15 @@ def _migration_text() -> str:
 
 def _load_security_migration():
     migration_file = _migration_files()[0]
-    spec = importlib.util.spec_from_file_location("security_migration", migration_file)
+    spec = importlib.util.spec_from_file_location(
+        "security_migration",
+        migration_file,
+    )
     if spec is None or spec.loader is None:
-        raise AssertionError(f"Unable to load migration module from {migration_file}")
+        raise AssertionError(
+            f"Unable to load migration module from {migration_file}"
+        )
+
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

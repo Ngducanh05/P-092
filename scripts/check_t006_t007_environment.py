@@ -1,4 +1,4 @@
-"""Print safe T-006/T-007 environment variable presence only."""
+"""Print safe T-006/T-007 environment-variable presence only."""
 
 from __future__ import annotations
 
@@ -19,17 +19,17 @@ REQUIRED_NAMES = (
 OPTIONAL_TOKEN_NAMES = (
     "SUPABASE_TEST_RESIDENT_ACCESS_TOKEN",
     "SUPABASE_TEST_BQL_ACCESS_TOKEN",
-    "SUPABASE_TEST_COORDINATOR_ACCESS_TOKEN",
 )
+
 ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = ROOT / ".env"
 
 
 def main() -> int:
+    """Print only whether each expected setting is present."""
     for name in (*REQUIRED_NAMES, *OPTIONAL_TOKEN_NAMES):
         status = "PRESENT" if _is_present(name) else "MISSING"
-        suffix = " (deprecated; use SUPABASE_TEST_BQL_ACCESS_TOKEN)" if name == "SUPABASE_TEST_COORDINATOR_ACCESS_TOKEN" else ""
-        print(f"{name}: {status}{suffix}")
+        print(f"{name}: {status}")
     return 0
 
 
@@ -38,6 +38,7 @@ def _is_present(name: str) -> bool:
         return True
     if not ENV_FILE.exists():
         return False
+
     prefix = f"{name}="
     try:
         with ENV_FILE.open(encoding="utf-8") as env_file:
@@ -48,6 +49,7 @@ def _is_present(name: str) -> bool:
                 return bool(line.removeprefix(prefix).strip())
     except OSError:
         return False
+
     return False
 
 
