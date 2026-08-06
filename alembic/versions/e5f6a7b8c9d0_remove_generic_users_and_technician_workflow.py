@@ -179,11 +179,24 @@ def upgrade() -> None:
                 SELECT schemaname, tablename, policyname
                 FROM pg_policies
                 WHERE schemaname = 'public'
-                  AND (
-                    policyname ILIKE '%technician%'
-                    OR policyname ILIKE '%coordinator%'
-                    OR policyname ILIKE '%users%'
-                    OR policyname ILIKE '%memberships%'
+                  AND tablename IN (
+                    'users',
+                    'user_unit_memberships',
+                    'technician_profiles',
+                    'technician_skills',
+                    'ticket_assignments',
+                    'residents',
+                    'bql_staff',
+                    'resident_unit_memberships',
+                    'units',
+                    'tickets',
+                    'ticket_attachments',
+                    'ticket_attachment_upload_sessions',
+                    'ticket_status_history',
+                    'notifications',
+                    'audit_logs',
+                    'ai_analysis_runs',
+                    'ticket_scoring_results'
                   )
             LOOP
                 EXECUTE format(

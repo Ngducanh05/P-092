@@ -127,6 +127,50 @@ def test_final_migration_has_no_credentials_or_startup_side_effects():
     assert "fastapi" not in text
     assert "src.database" not in text
 
+def test_final_migration_drops_legacy_policies_before_obsolete_columns():
+    text = _migration_text()
+
+    cleanup_start = text.index("FOR policy_record IN")
+    cleanup_end = text.index(
+        "DROP VIEW IF EXISTS public.technician_ticket_view",
+        cleanup_start,
+    )
+    cleanup_sql = text[cleanup_start:cleanup_end]
+
+    required_tables = {
+        "users",
+        "user_unit_memberships",
+        "technician_profiles",
+        "technician_skills",
+        "ticket_assignments",
+        "residents",
+        "bql_staff",
+        "resident_unit_memberships",
+        "units",
+        "tickets",
+        "ticket_attachments",
+        "ticket_attachment_upload_sessions",
+        "ticket_status_history",
+        "notifications",
+        "audit_logs",
+        "ai_analysis_runs",
+        "ticket_scoring_results",
+    }
+
+    for table_name in required_tables:
+        assert f"'{table_name}'" in cleanup_sql
+
+    assert "policyname ILIKE" not in cleanup_sql
+
+    obsolete_column_drops = (
+        'op.drop_column("ticket_attachment_upload_sessions", "owner_user_id")',
+        'op.drop_column("ticket_status_history", "changed_by_user_id")',
+        'op.drop_column("notifications", "recipient_user_id")',
+        'op.drop_column("audit_logs", "actor_user_id")',
+    )
+
+    for drop_statement in obsolete_column_drops:
+        assert cleanup_start < text.index(drop_statement)
 
 def _migration_files() -> list[Path]:
     return sorted(
