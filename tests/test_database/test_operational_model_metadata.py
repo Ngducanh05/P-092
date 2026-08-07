@@ -37,7 +37,7 @@ def test_operational_models_import_successfully():
 def test_operational_tables_registered_in_metadata():
     assert OPERATIONAL_TABLES <= set(Base.metadata.tables)
     assert "user_unit_memberships" not in Base.metadata.tables
-    assert "ticket_assignments" not in Base.metadata.tables
+    assert "ticket_assignments" in Base.metadata.tables
 
 
 def test_every_operational_table_has_primary_key():

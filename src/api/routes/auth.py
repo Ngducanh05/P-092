@@ -8,7 +8,7 @@ from src.api.dependencies.database import get_db
 from src.api.openapi_responses import AUTHENTICATED_RESPONSES
 from src.models.api.auth import CurrentActorResponse
 from src.repositories.unit_repository import UnitRepository
-from src.services.auth_service import current_bql_response, current_resident_response
+from src.services.auth_service import current_bql_response, current_resident_response, current_technician_response
 
 router = APIRouter()
 
@@ -42,6 +42,18 @@ ME_RESPONSE_EXAMPLES = {
             "is_active": True,
         },
     },
+    "technician": {
+        "summary": "Technician profile",
+        "value": {
+            "id": "33333333-3333-4333-8333-333333333333",
+            "actor_type": "technician",
+            "email": "tech@example.invalid",
+            "full_name": "Nguyen Van Tech",
+            "phone_number": "+84901234567",
+            "is_active": True,
+            "is_available": True,
+        },
+    },
 }
 
 
@@ -50,9 +62,10 @@ ME_RESPONSE_EXAMPLES = {
     response_model=CurrentActorResponse,
     summary="Get current authenticated actor",
     description=(
-        "Returns the Resident or BQL profile for the Supabase Bearer access token. Residents receive active unit "
-        "memberships. BQL staff receive only staff profile fields. Actor type is derived by the backend from profile "
-        "tables, never from client-provided role metadata."
+        "Returns the Resident, BQL, or Technician profile for the Supabase Bearer access token. "
+        "Residents receive active unit memberships. BQL staff receive only staff profile fields. "
+        "Technicians receive their profile including availability status. "
+        "Actor type is derived by the backend from profile tables, never from client-provided role metadata."
     ),
     operation_id="get_current_actor",
     responses={
@@ -67,4 +80,6 @@ def me(actor: CurrentActor = Depends(get_current_actor), db: Session = Depends(g
     if actor.actor_type == "resident":
         units = UnitRepository(db).list_active_memberships_for_resident(actor.profile.id)
         return current_resident_response(actor.profile, units)
-    return current_bql_response(actor.profile)
+    if actor.actor_type == "technician":
+        return current_technician_response(actor.profile)  # type: ignore[arg-type]
+    return current_bql_response(actor.profile)  # type: ignore[arg-type]

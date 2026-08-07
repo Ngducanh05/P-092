@@ -36,6 +36,25 @@ Purpose: validate, cut over, and clean up.
 - Recreates the safe Resident view and final Resident/BQL RLS policies.
 - Adds explicit deny-all client policies for upload sessions, AI analysis, scoring, and audit logs.
 
+
+## `f6a7b8c9d0e1`
+
+Down revision: `e5f6a7b8c9d0`
+
+Purpose: restore the source-required Technician actor without restoring the obsolete generic-user design.
+
+- Requires `auth.users` to exist; preflight fails safely with count-only diagnostics when required objects or data invariants are invalid.
+- Creates `technician_profiles` with `id` as both PK and FK to `auth.users.id`.
+- Creates `technician_skills` and `ticket_assignments`.
+- Creates `assignment_status_enum` and assignment lifecycle timestamps/notes.
+- Adds the Auth FK for `ticket_assignments.assigned_by_auth_user_id`.
+- Enforces one active assignment per ticket using a partial unique index.
+- Extends actor-profile exclusivity to Resident, BQL, and Technician.
+- Enables and forces RLS on Technician tables; grants only assignment-scoped reads to authenticated Technicians.
+- Preserves backend-only mutation boundaries and does not recreate `public.users` or `role_enum`.
+
+This revision has not been applied automatically. Validate statically and on an isolated PostgreSQL target before any explicit live upgrade.
+
 ## Safe validation
 
 ```powershell

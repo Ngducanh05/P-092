@@ -1,44 +1,58 @@
 # RLS Policy Design
 
-RLS uses the verified Supabase identity from `auth.uid()` and remains defense in depth. Backend authorization is still mandatory.
+RLS uses the verified Supabase identity from `auth.uid()` as defense in depth. Backend authorization remains mandatory and direct client mutations are not used for business workflows.
 
 ## Resident
 
-An authenticated Resident may select:
+An authenticated active Resident may select:
 
-- Their own active `residents` profile.
-- Their own active `resident_unit_memberships` rows.
-- Active Units reached through those memberships.
-- Tickets whose `unit_id` has an active membership for `auth.uid()`.
-- Attachments and status history only through an accessible parent Ticket.
-- Notifications only when `recipient_auth_user_id = auth.uid()`.
+- the Resident's own `residents` profile;
+- own active `resident_unit_memberships` rows;
+- active Units reached through those memberships;
+- Tickets in the Resident's active unit scope;
+- attachments and status history through an authorized parent Ticket;
+- notifications where `recipient_auth_user_id = auth.uid()`.
 
-Resident ticket ownership never comes from a client-supplied Resident or Unit owner ID.
+Resident ownership never comes from a client-supplied Resident or Unit owner ID.
 
 ## BQL
 
 An authenticated active BQL staff member may select:
 
-- Their own `bql_staff` profile.
-- All Tickets for the current MVP.
-- Attachments and status history through the accessible parent Ticket.
-- Their own notifications through `recipient_auth_user_id = auth.uid()`.
+- the BQL user's own `bql_staff` profile;
+- the current MVP system-wide Ticket queue;
+- parent-authorized attachments and status history;
+- active Technician profiles and skills required for routing;
+- assignment rows required for operations;
+- own notifications.
 
-BQL status is resolved from the backend-provisioned `bql_staff` table, not JWT role metadata or frontend input.
+BQL status is resolved from `bql_staff`, not JWT role metadata or frontend input.
 
-## Backend-only tables
+## Technician
 
-Direct `anon` and `authenticated` access is explicitly denied for:
+An authenticated active Technician may select:
+
+- the Technician's own active `technician_profiles` row;
+- own skills;
+- own active `ticket_assignments` rows;
+- only Tickets referenced by those active assignments;
+- attachments and status history through an assigned parent Ticket;
+- own notifications.
+
+A Technician cannot read another Technician's assignment or an unassigned Ticket. Technician identity is always derived from `auth.uid()`.
+
+## Backend-only or restricted data
+
+Direct `anon` and `authenticated` mutation remains denied for backend-controlled workflows. Internal tables and payloads include:
 
 - `ticket_attachment_upload_sessions`
 - `ai_analysis_runs`
 - `ticket_scoring_results`
 - `audit_logs`
+- assignment mutations and status transitions
 
-Private Storage object paths, internal model fields, scoring breakdowns, and audit payloads are not exposed through normal client APIs.
+Private Storage paths, internal model fields, score breakdowns, and audit payloads are not exposed through ordinary client APIs.
 
-## Mutations
+## Hardening
 
-No direct client INSERT, UPDATE, or DELETE policy is granted for backend-controlled business workflows. Ticket creation, attachment consumption, profile provisioning, status changes, notifications, and audit writes remain backend operations.
-
-All final business tables have RLS enabled and forced, and broad `PUBLIC` privileges are revoked.
+Final business tables have RLS enabled and forced where appropriate, and broad `PUBLIC` privileges are revoked. No INSERT, UPDATE, or DELETE policy is granted to direct clients for Technician profile provisioning, assignment, status history, notifications, or audit writes.

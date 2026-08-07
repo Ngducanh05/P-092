@@ -35,6 +35,33 @@ def test_required_operational_indexes_exist():
         ("notifications", "ix_notifications_ticket_id", ("ticket_id",), False),
         ("audit_logs", "ix_audit_logs_entity", ("entity_type", "entity_id"), False),
         ("audit_logs", "ix_audit_logs_actor_auth_created_at", ("actor_auth_user_id", "created_at"), False),
+        ("technician_profiles", "ix_technician_profiles_email", ("email",), True),
+        (
+            "technician_profiles",
+            "ix_technician_profiles_active_available",
+            ("is_active", "is_available"),
+            False,
+        ),
+        ("technician_skills", "ix_technician_skills_category", ("category",), False),
+        ("technician_skills", "ix_technician_skills_technician_id", ("technician_id",), False),
+        (
+            "ticket_assignments",
+            "ix_ticket_assignments_technician_active",
+            ("technician_id", "is_active"),
+            False,
+        ),
+        (
+            "ticket_assignments",
+            "ix_ticket_assignments_ticket_assigned_at",
+            ("ticket_id", "assigned_at"),
+            False,
+        ),
+        (
+            "ticket_assignments",
+            "uq_ticket_assignments_one_active_per_ticket",
+            ("ticket_id",),
+            True,
+        ),
     }
     actual = {
         (table.name, index.name, tuple(column.name for column in index.columns), index.unique)
@@ -43,4 +70,3 @@ def test_required_operational_indexes_exist():
     }
 
     assert expected <= actual
-    assert all("technician" not in item[0] and "technician" not in item[1] for item in actual)

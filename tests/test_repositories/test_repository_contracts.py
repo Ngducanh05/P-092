@@ -90,15 +90,16 @@ def test_bql_ordering_filters_and_pagination(db_session):
     p2_old = _ticket(resident.id, unit.id, "P2 old", priority=Priority.P2, created_at=datetime.now(UTC) - timedelta(days=2))
     p1_new = _ticket(resident.id, unit.id, "P1 new", priority=Priority.P1, created_at=datetime.now(UTC) - timedelta(days=1))
     p2_new = _ticket(resident.id, unit.id, "P2 new", priority=Priority.P2, category=Category.WATER)
+    p3_new = _ticket(resident.id, unit.id, "P3 new", priority=Priority.P3)
     null_priority = _ticket(resident.id, unit.id, "Null", priority=None)
-    db_session.add_all([p2_old, p1_new, p2_new, null_priority])
+    db_session.add_all([p2_old, p1_new, p2_new, p3_new, null_priority])
     db_session.commit()
 
     items, total = TicketRepository(db_session).list_bql_tickets(1, 3)
     water_items, water_total = TicketRepository(db_session).list_bql_tickets(1, 10, category=Category.WATER)
 
-    assert total == 4
-    assert [item.id for item in items] == [p1_new.id, p2_old.id, p2_new.id]
+    assert total == 5
+    assert [item.id for item in items] == [p3_new.id, p2_old.id, p2_new.id]
     assert water_total == 1
     assert water_items[0].id == p2_new.id
 

@@ -14,12 +14,17 @@ from src.main import app
 TEST_TABLES = [
     Base.metadata.tables["residents"],
     Base.metadata.tables["bql_staff"],
+    Base.metadata.tables["technician_profiles"],
+    Base.metadata.tables["technician_skills"],
     Base.metadata.tables["units"],
     Base.metadata.tables["resident_unit_memberships"],
     Base.metadata.tables["tickets"],
     Base.metadata.tables["ticket_attachments"],
     Base.metadata.tables["ticket_status_history"],
     Base.metadata.tables["ticket_attachment_upload_sessions"],
+    Base.metadata.tables["ticket_assignments"],
+    Base.metadata.tables["notifications"],
+    Base.metadata.tables["audit_logs"],
 ]
 
 
@@ -45,7 +50,7 @@ def db_session():
         yield session
     finally:
         session.close()
-        Base.metadata.drop_all(engine, tables=reversed(TEST_TABLES))
+        Base.metadata.drop_all(engine, tables=list(reversed(TEST_TABLES)))
 
 
 @pytest.fixture

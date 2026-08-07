@@ -2,8 +2,9 @@
 
 from src.database.models.bql_staff import BQLStaff
 from src.database.models.resident import Resident
+from src.database.models.technician_profile import TechnicianProfile
 from src.database.models.unit import Unit
-from src.models.api.auth import CurrentBQLResponse, CurrentResidentResponse
+from src.models.api.auth import CurrentBQLResponse, CurrentResidentResponse, CurrentTechnicianResponse
 from src.models.api.units import UnitResponse
 
 
@@ -34,4 +35,16 @@ def current_bql_response(bql_staff: BQLStaff) -> CurrentBQLResponse:
         email=bql_staff.email,
         full_name=bql_staff.full_name,
         is_active=bql_staff.is_active,
+    )
+
+
+def current_technician_response(technician: TechnicianProfile) -> CurrentTechnicianResponse:
+    return CurrentTechnicianResponse(
+        actor_type="technician",
+        id=technician.id,
+        email=technician.email,
+        full_name=technician.full_name,
+        phone_number=technician.phone_number,
+        is_active=technician.is_active,
+        is_available=technician.is_available,
     )

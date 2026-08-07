@@ -28,8 +28,22 @@ ALLOWLISTED_MATCHES = {
 
 
 def tracked_files() -> list[Path]:
-    result = subprocess.run(["git", "ls-files"], cwd=ROOT, text=True, capture_output=True, check=True)
-    return [ROOT / line for line in result.stdout.splitlines() if line.strip()]
+    """Return Git-tracked files, or a safe filesystem fallback for source archives."""
+    try:
+        result = subprocess.run(
+            ["git", "ls-files"],
+            cwd=ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        result = None
+
+    if result is not None and result.returncode == 0:
+        return [ROOT / line for line in result.stdout.splitlines() if line.strip()]
+
+    return sorted(path for path in ROOT.rglob("*") if path.is_file() and not is_skipped(path))
 
 
 def is_skipped(path: Path) -> bool:

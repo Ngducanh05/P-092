@@ -1,18 +1,30 @@
 # Supabase Auth Setup
 
-Supabase Auth remains the authentication provider. The application no longer uses `public.users`, `role_enum`, Coordinator, Admin, or Technician profiles for final runtime authorization.
+Supabase Auth is the authentication provider. The application does not use `public.users`, `role_enum`, frontend role selection, or editable JWT metadata for authorization.
 
-## Profiles
+## Business profiles
+
+```text
+auth.users
+├── public.residents
+├── public.bql_staff
+└── public.technician_profiles
+```
 
 - Residents authenticate with phone OTP and resolve to `public.residents`.
-- BQL staff authenticate with email/password and resolve to `public.bql_staff`.
+- BQL staff authenticate with email/password and resolve to backend-provisioned `public.bql_staff`.
+- Technicians authenticate with email/password and resolve to backend-provisioned `public.technician_profiles`.
+- One Auth UUID may exist in only one business-profile table; database triggers and backend conflict checks enforce this.
 
-BQL profiles are provisioned through backend-only administrative tooling. Do not expose frontend role selection and do not trust editable JWT metadata.
+Unknown valid Auth users are auto-created as Residents only when the verified token contains a valid normalized E.164 phone claim. Email-only unknown identities are rejected and never auto-provisioned as BQL or Technician. BQL and Technician profiles must be provisioned by trusted backend scripts after the corresponding Supabase Auth user exists.
 
-Unknown valid Auth users are auto-created as Residents only when the token has a valid normalized E.164 phone claim. Email-only unknown users are rejected.
+## Request flow
 
-## Flow
+```text
+Frontend -> Supabase Auth -> Bearer token -> FastAPI
+         -> residents | bql_staff | technician_profiles
+         -> actor-specific authorization/business logic
+         -> PostgreSQL/Supabase
+```
 
-Frontend -> Supabase Auth -> Bearer token -> FastAPI -> `residents` or `bql_staff` profile resolution -> authorization/business logic -> PostgreSQL/Supabase.
-
-Backend never receives OTPs or passwords and never exposes the Supabase secret key.
+The backend never receives OTPs or passwords and never exposes Supabase secret/service-role keys. Token email must case-insensitively match the BQL or Technician profile email; inactive profiles are denied.

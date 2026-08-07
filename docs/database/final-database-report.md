@@ -1,21 +1,21 @@
 # Final Database Report
 
-Status: static final architecture implemented for Resident and BQL profiles. NOT TESTED ON LIVE POSTGRESQL by default.
+Status: Technician restoration is statically implemented after the Resident/BQL actor refactor. **NOT TESTED ON LIVE POSTGRESQL** by default.
 
-## Final Actor Model
+## Actor model
 
 - `auth.users` stores authentication identity.
-- `public.residents` stores Resident business profiles.
-- `public.bql_staff` stores BQL staff business profiles.
+- `public.residents`, `public.bql_staff`, and `public.technician_profiles` store mutually exclusive business profiles.
+- `public.users` and `role_enum` remain removed.
 
-The final schema removes `public.users`, `role_enum`, Technician profiles, Technician skills, ticket assignments, Technician policies, and Technician views.
+## Technician workflow
 
-## Ownership
-
-Tickets reference `residents.id`. Unit membership uses `resident_unit_memberships`. Upload sessions use `resident_id`. Status history, notifications, and audit logs store Supabase auth UUIDs for mixed Resident/BQL records.
+`technician_skills` and `ticket_assignments` support skill-aware BQL routing, own-assignment Technician access, state history, notifications, and audit evidence. One partial unique index allows at most one active assignment per Ticket.
 
 ## Security
 
-RLS uses `auth.uid()` and remains defense in depth. Resident access is based on active memberships. BQL has system-wide MVP ticket read when the `bql_staff` profile is active. Audit and internal AI scoring data remain restricted.
+RLS uses `auth.uid()` and is forced on final business tables. Resident access follows active membership, BQL uses active profile authorization, and Technician access follows active assignment ownership. Direct client mutations remain denied.
 
-Legacy ticket status values `waiting_assignment` and `assigned` remain pending lifecycle approval; no new Technician assignment transitions are generated.
+Legacy ticket status values remain for migration compatibility. The active Technician path now generates `assigned`, `in_progress`, and `waiting_assignment` transitions. Secure completion evidence remains intentionally blocked pending a Technician-owned upload contract.
+
+Live migration and live Supabase token tests require explicit user approval and configured development credentials.

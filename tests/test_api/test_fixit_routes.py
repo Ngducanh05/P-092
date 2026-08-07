@@ -12,12 +12,14 @@ from src.database.models.attachment import TicketAttachment
 from src.database.models.bql_staff import BQLStaff
 from src.database.models.resident import Resident
 from src.database.models.resident_unit_membership import ResidentUnitMembership
+from src.database.models.technician_profile import TechnicianProfile
 from src.database.models.ticket import Ticket
+from src.database.models.ticket_assignment import TicketAssignment
 from src.database.models.ticket_attachment_upload_session import TicketAttachmentUploadSession
 from src.database.models.unit import Unit
 from src.main import app
 from src.models.api.errors import ACTOR_FORBIDDEN, AUTH_TOKEN_INVALID, USER_INACTIVE, DomainError
-from src.models.enums import TicketStatus
+from src.models.enums import AssignmentStatus, Category, TicketStatus
 from src.security.supabase_jwt import AuthenticatedPrincipal
 from src.services.storage_service import SignedUploadTarget
 
@@ -250,6 +252,115 @@ async def test_attachment_download_url_authorized_and_no_raw_path(client, db_ses
     assert download_response.status_code == 200
     assert download_response.json()["attachment_id"] == str(attachment.id)
     assert download_response.json()["signed_download_url"] == "https://storage.example/download"
+
+
+@pytest.mark.asyncio
+async def test_technician_cannot_use_resident_bql_ticket_detail_endpoints(client, db_session):
+    resident = _resident()
+    technician = TechnicianProfile(
+        id=uuid4(),
+        email=f"technician-{uuid4().hex[:8]}@example.com",
+        is_active=True,
+        is_available=True,
+    )
+    unit = _unit()
+    ticket = Ticket(
+        resident_id=resident.id,
+        unit_id=unit.id,
+        title="Restricted ticket",
+        description="This ticket is not reached through the common Technician API.",
+        status=TicketStatus.NEW,
+    )
+    attachment = TicketAttachment(
+        ticket=ticket,
+        file_url=f"tickets/{resident.id}/2026/08/{uuid4()}.jpg",
+        file_type="image",
+        mime_type="image/jpeg",
+        file_size=128,
+    )
+    db_session.add_all([resident, technician, unit, ticket, attachment])
+    db_session.commit()
+    _override_auth_and_db(_actor("technician", technician), db_session)
+    try:
+        detail_response = await client.get(f"/api/v1/tickets/{ticket.id}")
+        attachment_response = await client.get(
+            f"/api/v1/tickets/{ticket.id}/attachments/{attachment.id}/download-url"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert detail_response.status_code == 403
+    assert detail_response.json()["error"]["code"] == ACTOR_FORBIDDEN
+    assert attachment_response.status_code == 403
+    assert attachment_response.json()["error"]["code"] == ACTOR_FORBIDDEN
+
+
+@pytest.mark.asyncio
+async def test_technician_assignment_exposes_safe_attachment_metadata_and_signed_download(
+    client,
+    db_session,
+):
+    resident = _resident()
+    technician = TechnicianProfile(
+        id=uuid4(),
+        email=f"technician-{uuid4().hex[:8]}@example.com",
+        is_active=True,
+        is_available=True,
+    )
+    unit = _unit()
+    ticket = Ticket(
+        resident_id=resident.id,
+        unit_id=unit.id,
+        title="Assigned image ticket",
+        description="Technician may view image metadata through the owned assignment.",
+        status=TicketStatus.ASSIGNED,
+        category=Category.WATER,
+    )
+    attachment = TicketAttachment(
+        ticket=ticket,
+        file_url=f"tickets/{resident.id}/2026/08/{uuid4()}.jpg",
+        file_type="image",
+        mime_type="image/jpeg",
+        file_size=512,
+    )
+    assignment = TicketAssignment(
+        ticket=ticket,
+        technician=technician,
+        assigned_by_auth_user_id=uuid4(),
+        status=AssignmentStatus.ASSIGNED,
+        is_active=True,
+    )
+    db_session.add_all([resident, technician, unit, ticket, attachment, assignment])
+    db_session.commit()
+
+    class FakeStorage:
+        settings = type("Settings", (), {"supabase_signed_download_ttl_seconds": 180})()
+
+        def create_signed_download_url(self, storage_path):
+            assert storage_path == attachment.file_url
+            return "https://storage.example/technician-download"
+
+    _override_auth_and_db(_actor("technician", technician), db_session)
+    app.dependency_overrides[get_storage_service] = lambda: FakeStorage()
+    try:
+        list_response = await client.get("/api/v1/technician/assignments")
+        download_response = await client.get(
+            f"/api/v1/technician/assignments/{assignment.id}/attachments/"
+            f"{attachment.id}/download-url"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert list_response.status_code == 200
+    attachment_body = list_response.json()[0]["ticket"]["attachments"][0]
+    assert attachment_body["id"] == str(attachment.id)
+    assert "storage_path" not in attachment_body
+    assert attachment_body["download_url_endpoint"].endswith(
+        f"/assignments/{assignment.id}/attachments/{attachment.id}/download-url"
+    )
+    assert download_response.status_code == 200
+    assert download_response.json()["signed_download_url"] == "https://storage.example/technician-download"
+    assert download_response.json()["expires_in"] == 180
 
 
 def _override_auth_and_db(actor: CurrentActor, db_session) -> None:

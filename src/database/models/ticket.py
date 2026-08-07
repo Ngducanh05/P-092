@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from src.database.models.notification import Notification
     from src.database.models.resident import Resident
     from src.database.models.scoring_result import TicketScoringResult
+    from src.database.models.ticket_assignment import TicketAssignment
     from src.database.models.ticket_status_history import TicketStatusHistory
     from src.database.models.unit import Unit
 
@@ -82,6 +83,10 @@ class Ticket(Base):
         cascade="all, delete-orphan",
     )
     status_history: Mapped[list[TicketStatusHistory]] = relationship(
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+    )
+    assignments: Mapped[list[TicketAssignment]] = relationship(
         back_populates="ticket",
         cascade="all, delete-orphan",
     )

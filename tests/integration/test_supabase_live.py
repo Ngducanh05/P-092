@@ -44,13 +44,13 @@ BUSINESS_TABLES = {
     "audit_logs",
     "ai_analysis_runs",
     "ticket_scoring_results",
+    "technician_profiles",
+    "technician_skills",
+    "ticket_assignments",
 }
 REMOVED_TABLES = {
     "users",
     "user_unit_memberships",
-    "technician_profiles",
-    "technician_skills",
-    "ticket_assignments",
 }
 FINAL_POLICY_NAMES = {
     "rls_residents_select_own_profile",
@@ -66,6 +66,13 @@ FINAL_POLICY_NAMES = {
     "rls_ai_analysis_runs_deny_all_client_access",
     "rls_ticket_scoring_results_deny_all_client_access",
     "rls_audit_logs_deny_all_client_access",
+    "rls_technician_profiles_select_own_active",
+    "rls_technician_profiles_select_bql_roster",
+    "rls_technician_skills_select_own",
+    "rls_technician_skills_select_bql_roster",
+    "rls_ticket_assignments_select_own_active",
+    "rls_ticket_assignments_select_bql",
+    "rls_tickets_technician_select_assigned",
 }
 SMALL_PNG = (
     b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -262,6 +269,12 @@ def bql_token(live_settings: Settings) -> str:
     return _require_token("SUPABASE_TEST_BQL_ACCESS_TOKEN")
 
 
+@pytest.fixture(scope="session")
+def technician_token(live_settings: Settings) -> str:
+    del live_settings
+    return _require_token("SUPABASE_TEST_TECHNICIAN_ACCESS_TOKEN")
+
+
 @pytest.fixture()
 def resident_context(
     api_client: TestClient,
@@ -441,6 +454,31 @@ def bql_profile(
     return user_id
 
 
+@pytest.fixture(scope="session")
+def technician_profile(
+    live_context: LiveContext,
+    db_engine: Engine,
+    technician_token: str,
+) -> UUID:
+    del live_context
+    user_id = _token_subject(technician_token)
+    with db_engine.connect() as connection:
+        exists = connection.scalar(
+            text(
+                "SELECT true FROM technician_profiles "
+                "WHERE id = :id AND is_active = true"
+            ),
+            {"id": user_id},
+        )
+
+    if not exists:
+        pytest.fail(
+            "SUPABASE_TEST_TECHNICIAN_ACCESS_TOKEN profile is not provisioned "
+            "as an active Technician."
+        )
+    return user_id
+
+
 @pytest.fixture()
 def upload_flow(
     api_client: TestClient,
@@ -604,7 +642,9 @@ def test_profile_auth_constraints_are_present_and_validated(
                 FROM pg_constraint
                 WHERE conname IN (
                     'fk_residents_id_auth_users',
-                    'fk_bql_staff_id_auth_users'
+                    'fk_bql_staff_id_auth_users',
+                    'fk_technician_profiles_id_auth_users',
+                    'fk_ticket_assignments_assigned_by_auth_users'
                 )
                 """
             )
@@ -618,7 +658,9 @@ def test_profile_auth_constraints_are_present_and_validated(
                     WHERE schemaname = 'public'
                       AND indexname IN (
                           'ix_residents_phone_number',
-                          'ix_bql_staff_email'
+                          'ix_bql_staff_email',
+                          'ix_technician_profiles_email',
+                          'uq_ticket_assignments_one_active_per_ticket'
                       )
                     """
                 )
@@ -628,11 +670,15 @@ def test_profile_auth_constraints_are_present_and_validated(
     assert {row.conname for row in rows} == {
         "fk_residents_id_auth_users",
         "fk_bql_staff_id_auth_users",
+        "fk_technician_profiles_id_auth_users",
+        "fk_ticket_assignments_assigned_by_auth_users",
     }
     assert all(row.referenced_table == "auth.users" for row in rows)
     assert all(row.convalidated for row in rows)
     assert "ix_residents_phone_number" in index_defs
     assert "ix_bql_staff_email" in index_defs
+    assert "ix_technician_profiles_email" in index_defs
+    assert "uq_ticket_assignments_one_active_per_ticket" in index_defs
 
 
 def test_actor_profile_exclusivity_triggers_exist(db_engine: Engine):
@@ -646,7 +692,8 @@ def test_actor_profile_exclusivity_triggers_exist(db_engine: Engine):
                     WHERE NOT tgisinternal
                       AND tgname IN (
                           'trg_residents_prevent_actor_profile_conflict',
-                          'trg_bql_staff_prevent_actor_profile_conflict'
+                          'trg_bql_staff_prevent_actor_profile_conflict',
+                          'trg_technician_profiles_prevent_actor_profile_conflict'
                       )
                     """
                 )
@@ -656,6 +703,7 @@ def test_actor_profile_exclusivity_triggers_exist(db_engine: Engine):
     assert trigger_names == {
         "trg_residents_prevent_actor_profile_conflict",
         "trg_bql_staff_prevent_actor_profile_conflict",
+        "trg_technician_profiles_prevent_actor_profile_conflict",
     }
 
 
@@ -694,7 +742,6 @@ def test_final_rls_policies_exist(db_engine: Engine):
         )
 
     assert FINAL_POLICY_NAMES <= policies
-    assert all("technician" not in name for name in policies)
     assert all("coordinator" not in name for name in policies)
 
 
@@ -815,6 +862,24 @@ def test_bql_auth_me(
     assert body["actor_type"] == "bql"
     assert "role" not in body
     assert "active_unit_memberships" not in body
+
+
+def test_technician_auth_me(
+    api_client: TestClient,
+    technician_profile: UUID,
+    technician_token: str,
+):
+    response = api_client.get(
+        "/api/v1/auth/me",
+        headers=_bearer(technician_token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert UUID(body["id"]) == technician_profile
+    assert body["actor_type"] == "technician"
+    assert "is_available" in body
+    assert "role" not in body
 
 
 def test_bql_can_read_ticket(

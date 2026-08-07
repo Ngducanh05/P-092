@@ -1,5 +1,7 @@
 # Schema Gap Analysis
 
-The prior operational schema included generic users and assignment workflow structures. The final approved architecture closes that gap by splitting business profiles into `residents` and `bql_staff`, replacing generic memberships with `resident_unit_memberships`, and removing unsupported assignment workflow tables.
+The generic `public.users` design was correctly replaced by Auth-linked actor profiles. Revision `e5f6a7b8c9d0` also removed Technician structures, which conflicted with the lead specifications. Revision `f6a7b8c9d0e1` corrects that gap without restoring generic roles.
 
-Remaining planned work is a dedicated ticket lifecycle migration for legacy enum values once approved.
+Current Technician-phase gap: secure Technician-owned completion-photo upload and consumption.
+
+Priority/P0/Category/Severity and AI-scoring alignment remain separate approved work phases.

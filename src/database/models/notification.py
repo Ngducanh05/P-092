@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class Notification(Base):
-    """Stored notification for a Resident or BQL auth identity."""
+    """Stored notification for a Resident, BQL, or Technician Auth identity."""
 
     __tablename__ = "notifications"
     __table_args__ = (

@@ -1,4 +1,4 @@
-"""Resident and BQL profile persistence operations."""
+"""Resident, BQL, and Technician profile persistence operations."""
 
 from uuid import UUID
 
@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from src.database.models.bql_staff import BQLStaff
 from src.database.models.resident import Resident
+from src.database.models.technician_profile import TechnicianProfile
 
 
 class ProfileRepository:
@@ -20,11 +21,17 @@ class ProfileRepository:
     def get_bql_staff(self, auth_user_id: UUID) -> BQLStaff | None:
         return self.db.get(BQLStaff, auth_user_id)
 
+    def get_technician_profile(self, auth_user_id: UUID) -> TechnicianProfile | None:
+        return self.db.get(TechnicianProfile, auth_user_id)
+
     def get_resident_by_phone(self, phone_number: str) -> Resident | None:
         return self.db.scalar(select(Resident).where(Resident.phone_number == phone_number))
 
     def get_bql_by_email(self, email: str) -> BQLStaff | None:
         return self.db.scalar(select(BQLStaff).where(BQLStaff.email == email))
+
+    def get_technician_by_email(self, email: str) -> TechnicianProfile | None:
+        return self.db.scalar(select(TechnicianProfile).where(TechnicianProfile.email == email))
 
     def create_resident_profile(self, auth_user_id: UUID, phone_number: str) -> Resident:
         existing = self.get_resident(auth_user_id)

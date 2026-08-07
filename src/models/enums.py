@@ -43,3 +43,13 @@ class Priority(str, Enum):  # noqa: UP042
     P2 = "p2"
     P3 = "p3"
     P4 = "p4"
+
+
+class AssignmentStatus(str, Enum):  # noqa: UP042
+    """Technician work states for a single ticket assignment."""
+
+    ASSIGNED = "assigned"
+    ACCEPTED = "accepted"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    UNABLE_TO_HANDLE = "unable_to_handle"

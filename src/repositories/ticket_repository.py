@@ -156,9 +156,9 @@ class TicketRepository:
         query = self._apply_filters(select(Ticket), status, category, priority, created_from, created_to)
         total = self.db.scalar(select(func.count()).select_from(query.subquery())) or 0
         priority_order = case(
-            (Ticket.priority == Priority.P1, 1),
+            (Ticket.priority == Priority.P3, 1),
             (Ticket.priority == Priority.P2, 2),
-            (Ticket.priority == Priority.P3, 3),
+            (Ticket.priority == Priority.P1, 3),
             (Ticket.priority == Priority.P4, 4),
             else_=5,
         )

@@ -13,6 +13,7 @@ from src.api.dependencies.database import get_db
 from src.config import get_settings
 from src.database.models.bql_staff import BQLStaff
 from src.database.models.resident import Resident
+from src.database.models.technician_profile import TechnicianProfile
 from src.models.api.errors import (
     ACTOR_FORBIDDEN,
     AUTH_PROFILE_CONFLICT,
@@ -39,8 +40,8 @@ supabase_bearer = HTTPBearer(
 
 @dataclass(frozen=True)
 class CurrentActor:
-    actor_type: Literal["resident", "bql"]
-    profile: Resident | BQLStaff
+    actor_type: Literal["resident", "bql", "technician"]
+    profile: Resident | BQLStaff | TechnicianProfile
     principal: AuthenticatedPrincipal
 
 
@@ -70,17 +71,21 @@ def get_current_actor(
     repo = ProfileRepository(db)
     resident = repo.get_resident(principal.auth_user_id)
     bql_staff = repo.get_bql_staff(principal.auth_user_id)
+    technician = repo.get_technician_profile(principal.auth_user_id)
     phone = normalize_e164_phone(principal.phone)
 
-    if resident is not None and bql_staff is not None:
+    # Guard: one Auth UUID must map to at most one actor profile.
+    profile_count = sum(1 for p in (resident, bql_staff, technician) if p is not None)
+    if profile_count > 1:
         raise DomainError(AUTH_PROFILE_CONFLICT, "Authenticated identity has conflicting actor profiles.", 401)
 
-    if resident is not None:
-        if not phone or resident.phone_number != phone:
-            raise DomainError(AUTH_PROFILE_INVALID, "Authenticated phone conflicts with resident profile.", 401)
-        if not resident.is_active:
-            raise DomainError(USER_INACTIVE, "Resident profile is inactive.", 403)
-        return CurrentActor("resident", resident, principal)
+    if technician is not None:
+        email = principal.email.casefold() if principal.email else None
+        if not email or technician.email.casefold() != email:
+            raise DomainError(AUTH_PROFILE_INVALID, "Authenticated email conflicts with technician profile.", 401)
+        if not technician.is_active:
+            raise DomainError(USER_INACTIVE, "Technician profile is inactive.", 403)
+        return CurrentActor("technician", technician, principal)
 
     if bql_staff is not None:
         email = principal.email.casefold() if principal.email else None
@@ -90,6 +95,14 @@ def get_current_actor(
             raise DomainError(USER_INACTIVE, "BQL profile is inactive.", 403)
         return CurrentActor("bql", bql_staff, principal)
 
+    if resident is not None:
+        if not phone or resident.phone_number != phone:
+            raise DomainError(AUTH_PROFILE_INVALID, "Authenticated phone conflicts with resident profile.", 401)
+        if not resident.is_active:
+            raise DomainError(USER_INACTIVE, "Resident profile is inactive.", 403)
+        return CurrentActor("resident", resident, principal)
+
+    # Unknown identity — may be auto-provisioned as Resident only.
     if not phone:
         raise DomainError(AUTH_PROFILE_INVALID, "Authenticated identity does not have a valid resident phone.", 401)
     try:
@@ -109,5 +122,11 @@ def require_resident(actor: CurrentActor = Depends(get_current_actor)) -> Reside
 
 def require_bql(actor: CurrentActor = Depends(get_current_actor)) -> BQLStaff:
     if actor.actor_type != "bql":
+        raise DomainError(ACTOR_FORBIDDEN, "Actor is not allowed for this operation.", 403)
+    return actor.profile  # type: ignore[return-value]
+
+
+def require_technician(actor: CurrentActor = Depends(get_current_actor)) -> TechnicianProfile:
+    if actor.actor_type != "technician":
         raise DomainError(ACTOR_FORBIDDEN, "Actor is not allowed for this operation.", 403)
     return actor.profile  # type: ignore[return-value]

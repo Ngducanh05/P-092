@@ -21,6 +21,16 @@ EXPECTED_OPERATIONS = {
         "get",
     ): "get_ticket_attachment_download_url",
     ("/api/v1/bql/tickets", "get"): "list_bql_tickets",
+    ("/api/v1/bql/technicians", "get"): "list_bql_technicians",
+    ("/api/v1/bql/tickets/{ticket_id}/assign", "post"): "bql_assign_ticket",
+    ("/api/v1/technician/assignments", "get"): "list_technician_assignments",
+    ("/api/v1/technician/assignments/{assignment_id}", "get"): "get_technician_assignment",
+    (
+        "/api/v1/technician/assignments/{assignment_id}/attachments/{attachment_id}/download-url",
+        "get",
+    ): "get_technician_assignment_attachment_download_url",
+    ("/api/v1/technician/assignments/{assignment_id}/accept", "post"): "accept_technician_assignment",
+    ("/api/v1/technician/assignments/{assignment_id}/status", "post"): "update_technician_assignment_status",
 }
 
 PROTECTED_OPERATIONS = [
@@ -32,6 +42,16 @@ PROTECTED_OPERATIONS = [
     ("/api/v1/tickets/{ticket_id}", "get"),
     ("/api/v1/tickets/{ticket_id}/attachments/{attachment_id}/download-url", "get"),
     ("/api/v1/bql/tickets", "get"),
+    ("/api/v1/bql/technicians", "get"),
+    ("/api/v1/bql/tickets/{ticket_id}/assign", "post"),
+    ("/api/v1/technician/assignments", "get"),
+    ("/api/v1/technician/assignments/{assignment_id}", "get"),
+    (
+        "/api/v1/technician/assignments/{assignment_id}/attachments/{attachment_id}/download-url",
+        "get",
+    ),
+    ("/api/v1/technician/assignments/{assignment_id}/accept", "post"),
+    ("/api/v1/technician/assignments/{assignment_id}/status", "post"),
 ]
 
 

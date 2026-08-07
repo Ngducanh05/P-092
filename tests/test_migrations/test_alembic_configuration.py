@@ -27,6 +27,9 @@ EXPECTED_TABLES = {
     "audit_logs",
     "ai_analysis_runs",
     "ticket_scoring_results",
+    "technician_profiles",
+    "technician_skills",
+    "ticket_assignments",
 }
 
 

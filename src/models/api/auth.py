@@ -62,4 +62,29 @@ class CurrentBQLResponse(BaseModel):
     is_active: bool = Field(description="Whether the BQL staff profile is active.")
 
 
-CurrentActorResponse = CurrentResidentResponse | CurrentBQLResponse
+class CurrentTechnicianResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "actor_type": "technician",
+                "id": "33333333-3333-4333-8333-333333333333",
+                "email": "tech@example.invalid",
+                "full_name": "Nguyen Van Tech",
+                "phone_number": "+84901234567",
+                "is_active": True,
+                "is_available": True,
+            }
+        },
+    )
+
+    actor_type: Literal["technician"] = Field(description="Backend-derived actor type.")
+    id: UUID = Field(description="Technician UUID, matching the Supabase Auth subject.")
+    email: str = Field(description="Verified email from the technician profile.")
+    full_name: str | None = Field(description="Optional display name stored in the technician profile.")
+    phone_number: str | None = Field(description="Optional E.164 phone number from the technician profile.")
+    is_active: bool = Field(description="Whether the technician profile is active.")
+    is_available: bool = Field(description="Whether the technician is currently available for new assignments.")
+
+
+CurrentActorResponse = CurrentResidentResponse | CurrentBQLResponse | CurrentTechnicianResponse

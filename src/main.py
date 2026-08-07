@@ -25,7 +25,9 @@ Residents use the API to view active unit memberships, request private attachmen
 upload targets, create maintenance tickets, list their accessible tickets, and
 retrieve short-lived attachment download URLs.
 
-BQL staff use the API to read the system-wide ticket list for the current MVP.
+BQL staff use the API to read the system-wide ticket queue, inspect the active Technician roster, and assign eligible tickets.
+
+Technicians use assignment-scoped endpoints to read only their own active work, accept assignments, start work, or return work they cannot handle.
 
 Authentication for protected endpoints uses Supabase Bearer access tokens:
 `Authorization: Bearer <SUPABASE_ACCESS_TOKEN>`. In Swagger UI, use the
@@ -37,11 +39,12 @@ Authorize button and paste only an access token, for example
 def openapi_tags() -> list[dict[str, str]]:
     tags = [
         {"name": "Health", "description": "Public liveness and readiness checks."},
-        {"name": "Auth", "description": "Authenticated Resident or BQL actor context."},
+        {"name": "Auth", "description": "Authenticated Resident, BQL, or Technician actor context."},
         {"name": "Units", "description": "Resident unit membership APIs."},
         {"name": "Storage", "description": "Private Supabase Storage signed upload targets for ticket attachments."},
         {"name": "Tickets", "description": "Resident ticket creation, listing, detail, and attachment download APIs."},
-        {"name": "BQL", "description": "BQL read APIs for the MVP ticket queue."},
+        {"name": "BQL", "description": "BQL ticket queue, Technician roster, and assignment APIs."},
+        {"name": "Technician", "description": "Technician assignment management APIs."},
     ]
     if settings.enable_legacy_agent_routes and settings.app_env == "development":
         tags.append(

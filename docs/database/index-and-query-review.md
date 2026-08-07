@@ -1,13 +1,14 @@
 # Index and Query Review
 
-Final hot-path indexes:
+Hot-path indexes include:
 
-- `ix_resident_unit_memberships_resident_active`
-- `ix_resident_unit_memberships_unit_active`
-- `ix_ticket_attachment_upload_sessions_resident_status`
-- `ix_ticket_attachment_upload_sessions_expires_at`
-- `ix_ticket_status_history_ticket_created_at`
-- `ix_notifications_recipient_auth_unread_created_at`
-- `ix_audit_logs_actor_auth_created_at`
+- Resident membership and upload-session indexes
+- Ticket status-history and notification indexes
+- `ix_technician_profiles_email`
+- `ix_technician_profiles_active_available`
+- `ix_technician_skills_category`
+- `ix_ticket_assignments_technician_active`
+- `ix_ticket_assignments_ticket_assigned_at`
+- `uq_ticket_assignments_one_active_per_ticket`
 
-BQL system-wide MVP ticket reads use ticket filters and priority ordering.
+BQL and Technician queues order business priorities P3, P2, then P1. Technician ownership predicates always include `technician_id` and active assignment state.

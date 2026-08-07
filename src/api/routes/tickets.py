@@ -22,6 +22,7 @@ from src.api.openapi_responses import (
 from src.database.models.attachment import TicketAttachment
 from src.database.models.resident import Resident
 from src.database.models.ticket import Ticket
+from src.models.api.errors import ACTOR_FORBIDDEN, DomainError
 from src.models.api.tickets import (
     AttachmentDownloadUrlResponse,
     TicketAttachmentResponse,
@@ -155,8 +156,10 @@ def ticket_detail(
     service = TicketService(db)
     if actor.actor_type == "resident":
         ticket = service.get_ticket_for_resident(actor.profile, ticket_id)
-    else:
+    elif actor.actor_type == "bql":
         ticket = service.get_ticket_for_bql(actor.profile, ticket_id)
+    else:
+        raise DomainError(ACTOR_FORBIDDEN, "Actor is not allowed for this operation.", 403)
     return ticket_response(ticket)
 
 
@@ -192,10 +195,12 @@ def attachment_download_url(
         attachment, signed_url, expires_in = service.get_attachment_download_url_for_resident(
             actor.profile, ticket_id, attachment_id
         )
-    else:
+    elif actor.actor_type == "bql":
         attachment, signed_url, expires_in = service.get_attachment_download_url_for_bql(
             actor.profile, ticket_id, attachment_id
         )
+    else:
+        raise DomainError(ACTOR_FORBIDDEN, "Actor is not allowed for this operation.", 403)
     return AttachmentDownloadUrlResponse(
         attachment_id=attachment.id,
         signed_download_url=signed_url,

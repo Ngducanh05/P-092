@@ -1,10 +1,11 @@
 # Attachment Security
 
-Ticket attachment objects are stored in a private Supabase Storage bucket. API responses return attachment metadata and signed download URLs only; raw Storage paths remain internal.
+Ticket attachment objects are stored in a private Supabase Storage bucket. API responses return approved metadata and short-lived signed download URLs; raw Storage paths remain internal.
 
-Authorization follows the parent ticket:
+Authorization follows the parent Ticket:
 
-- Resident: active `resident_unit_memberships` row for the ticket unit.
-- BQL: active `bql_staff` profile for current MVP system-wide read.
+- Resident: active membership for the Ticket unit.
+- BQL: active BQL system-wide MVP read.
+- Technician: active assignment to the parent Ticket.
 
-Upload sessions are backend-controlled and scoped by `resident_id`.
+Existing signed upload sessions are Resident-owned. Technician completion evidence requires a separate Technician-owned upload contract and remains intentionally blocked until implemented.

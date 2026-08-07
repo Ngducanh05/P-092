@@ -2,11 +2,27 @@
 
 from pathlib import Path
 
-from scripts.scan_secrets import main, scan_paths
+from scripts.scan_secrets import main, scan_paths, tracked_files
 
 
 def test_secret_scan_script_passes_for_tracked_files():
     assert main() == 0
+
+
+def test_tracked_files_falls_back_without_git_repository(monkeypatch, tmp_path):
+    source_file = tmp_path / "source.py"
+    source_file.write_text("print('safe')\n", encoding="utf-8")
+    env_file = tmp_path / ".env"
+    env_file.write_text("OPENAI_API_KEY=hidden\n", encoding="utf-8")
+
+    class Result:
+        returncode = 128
+        stdout = ""
+
+    monkeypatch.setattr("scripts.scan_secrets.ROOT", tmp_path)
+    monkeypatch.setattr("scripts.scan_secrets.subprocess.run", lambda *args, **kwargs: Result())
+
+    assert tracked_files() == [source_file]
 
 
 def test_known_database_placeholder_is_allowed(tmp_path):

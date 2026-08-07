@@ -20,6 +20,9 @@ from src.models.enums import Category, Priority, Severity, TicketStatus
 EXPECTED_TABLES = {
     "residents",
     "bql_staff",
+    "technician_profiles",
+    "technician_skills",
+    "ticket_assignments",
     "resident_unit_memberships",
     "units",
     "tickets",
@@ -31,7 +34,7 @@ EXPECTED_TABLES = {
     "ai_analysis_runs",
     "ticket_scoring_results",
 }
-REMOVED_TABLES = {"users", "technician_profiles", "technician_skills", "ticket_assignments"}
+REMOVED_TABLES = {"users"}
 
 
 def test_all_orm_models_import_successfully():
