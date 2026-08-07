@@ -1,11 +1,11 @@
-"""Unit and membership queries."""
+"""Unit catalog and resident binding queries."""
 
 from uuid import UUID
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from src.database.models.resident_unit_membership import ResidentUnitMembership
+from src.database.models.resident_profile import ResidentProfile
 from src.database.models.unit import Unit
 
 
@@ -13,42 +13,34 @@ class UnitRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def list_active_memberships_for_resident(self, resident_id: UUID) -> list[Unit]:
-        return list(
-            self.db.scalars(
-                select(Unit)
-                .join(ResidentUnitMembership, ResidentUnitMembership.unit_id == Unit.id)
-                .where(
-                    ResidentUnitMembership.resident_id == resident_id,
-                    ResidentUnitMembership.is_active.is_(True),
-                    Unit.is_active.is_(True),
-                )
-                .order_by(Unit.building_code, Unit.floor, Unit.unit_number)
-            )
-        )
-
-    def get_authorized_unit_for_resident(self, resident_id: UUID, unit_id: UUID) -> Unit | None:
+    def get_by_code(self, unit_code: str) -> Unit | None:
         return self.db.scalar(
             select(Unit)
-            .join(ResidentUnitMembership, ResidentUnitMembership.unit_id == Unit.id)
-            .where(
-                Unit.id == unit_id,
-                Unit.is_active.is_(True),
-                ResidentUnitMembership.resident_id == resident_id,
-                ResidentUnitMembership.is_active.is_(True),
-            )
+            .where(func.lower(Unit.unit_code) == unit_code.strip().lower(), Unit.status == "ACTIVE")
+            .options(joinedload(Unit.building), joinedload(Unit.floor))
         )
 
-    def count_active_units_for_resident(self, resident_id: UUID) -> int:
-        return int(
-            self.db.scalar(
-                select(func.count(Unit.id))
-                .join(ResidentUnitMembership, ResidentUnitMembership.unit_id == Unit.id)
-                .where(
-                    ResidentUnitMembership.resident_id == resident_id,
-                    ResidentUnitMembership.is_active.is_(True),
-                    Unit.is_active.is_(True),
-                )
-            )
-            or 0
+    def get_resident_unit(self, user_id: UUID) -> Unit | None:
+        return self.db.scalar(
+            select(Unit)
+            .join(ResidentProfile, ResidentProfile.unit_id == Unit.id)
+            .where(ResidentProfile.user_id == user_id, Unit.status == "ACTIVE")
+            .options(joinedload(Unit.building), joinedload(Unit.floor))
         )
+
+    def get_resident_profile(self, user_id: UUID) -> ResidentProfile | None:
+        return self.db.scalar(
+            select(ResidentProfile)
+            .where(ResidentProfile.user_id == user_id)
+            .options(joinedload(ResidentProfile.unit).joinedload(Unit.building), joinedload(ResidentProfile.unit).joinedload(Unit.floor))
+        )
+
+    def unit_has_resident(self, unit_id: UUID) -> bool:
+        count = self.db.scalar(select(func.count()).select_from(ResidentProfile).where(ResidentProfile.unit_id == unit_id)) or 0
+        return bool(count)
+
+    def bind_resident(self, user_id: UUID, unit: Unit, *, is_primary: bool) -> ResidentProfile:
+        profile = ResidentProfile(user_id=user_id, unit_id=unit.id, is_primary=is_primary)
+        self.db.add(profile)
+        self.db.flush()
+        return profile

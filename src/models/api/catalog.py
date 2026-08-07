@@ -1,0 +1,28 @@
+"""Catalog response schemas for location and categories."""
+
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict
+
+from src.models.enums import Category
+
+
+class LocationCatalogItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    building_code: str
+    floor_code: str
+    floor_display_name: str
+    location_type_code: str
+    location_type_name: str
+    unit_code: str | None
+    label: str
+
+
+class CategoryCatalogItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    code: Category
+    display_name: str

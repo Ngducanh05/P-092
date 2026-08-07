@@ -1,236 +1,236 @@
-"""Resident ticket routes."""
+"""Resident ticket APIs aligned with Self_Dev_Docs v2."""
 
 from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Path, Query, status
+from fastapi import APIRouter, Body, Depends, Path, Query, Request, status
 from sqlalchemy.orm import Session
 
-from src.api.dependencies.auth import CurrentActor, get_current_actor
+from src.api.dependencies.auth import CurrentActor, require_resident
 from src.api.dependencies.database import get_db
-from src.api.dependencies.roles import require_resident
-from src.api.openapi_responses import (
-    ATTACHMENT_NOT_FOUND_RESPONSE,
-    AUTHENTICATED_RESPONSES,
-    BAD_REQUEST_RESPONSE,
-    INTERNAL_SERVER_ERROR_RESPONSE,
-    STORAGE_UNAVAILABLE_RESPONSE,
-    TICKET_NOT_FOUND_RESPONSE,
-    UNIT_NOT_FOUND_RESPONSE,
-)
+from src.api.routes.storage import get_storage_service
 from src.database.models.attachment import TicketAttachment
-from src.database.models.resident import Resident
 from src.database.models.ticket import Ticket
-from src.models.api.errors import ACTOR_FORBIDDEN, DomainError
+from src.models.api.common import ApiResponse
 from src.models.api.tickets import (
     AttachmentDownloadUrlResponse,
+    ResidentTicketResponse,
+    ResidentTimelineItem,
     TicketAttachmentResponse,
+    TicketCreatedResponse,
     TicketCreateRequest,
     TicketListResponse,
-    TicketResponse,
+    TicketSupplementRequest,
 )
 from src.models.enums import Category, TicketStatus
+from src.services.scoring_service import (
+    estimated_resolution_text,
+    priority_description,
+    resident_status_text,
+)
+from src.services.storage_service import StorageService
 from src.services.ticket_service import TicketService
 
 router = APIRouter()
 
 
-def bounded_page_size(
-    page_size: int = Query(
-        default=20,
-        ge=1,
-        le=100,
-        description="Number of items per page. Must be between 1 and 100.",
-    ),
-) -> int:
+def bounded_page_size(page_size: int = Query(default=20, ge=1, le=100)) -> int:
     return page_size
 
 
-TicketCreateBody = Annotated[
-    TicketCreateRequest,
-    Body(
-        openapi_examples={
-            "water_leak": {
-                "summary": "Resident water leak ticket",
-                "value": {
-                    "title": "Rò rỉ nước tại hành lang tầng 10",
-                    "description": "Nước đang chảy từ trần gần thang máy và làm sàn bị trơn.",
-                    "unit_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-                    "location_description": "Hành lang tầng 10, trước thang máy số 2",
-                    "attachment_upload_ids": ["6ba7b810-9dad-11d1-80b4-00c04fd430c8"],
-                },
-            }
-        }
-    ),
-]
+def _ok(request: Request, data, meta: dict[str, object] | None = None):
+    return {"data": data, "meta": meta or {}, "error": None, "request_id": request.state.request_id}
+
+
+def _resident_actions(ticket: Ticket) -> list[str]:
+    actions: list[str] = []
+    if ticket.status == TicketStatus.NEW:
+        actions.append("CANCEL")
+    if ticket.status == TicketStatus.WAITING_RESIDENT_INFO:
+        actions.append("SUPPLEMENT_INFORMATION")
+    return actions
+
+
+def _attachment_response(ticket_id: UUID, attachment: TicketAttachment) -> TicketAttachmentResponse:
+    return TicketAttachmentResponse(
+        id=attachment.id,
+        mime_type=attachment.mime_type,
+        size_bytes=attachment.size_bytes,
+        download_url_endpoint=f"/api/v1/tickets/{ticket_id}/attachments/{attachment.id}/download-url",
+    )
+
+
+def resident_ticket_response(ticket: Ticket) -> ResidentTicketResponse:
+    return ResidentTicketResponse(
+        id=ticket.id,
+        description=ticket.description,
+        display_status=(
+            "Đang phân tích..."
+            if ticket.classification_status.value in {"PENDING", "PROCESSING"}
+            else resident_status_text(ticket.status)
+        ),
+        category_display_name=ticket.category.display_name if ticket.category else None,
+        priority_description=priority_description(ticket.priority),
+        estimated_resolution_text=estimated_resolution_text(ticket.priority, ticket.classification_status),
+        created_at=ticket.created_at,
+        updated_at=ticket.updated_at,
+        available_actions=_resident_actions(ticket),
+        attachments=[_attachment_response(ticket.id, a) for a in ticket.attachments],
+        timeline=[
+            ResidentTimelineItem(
+                display_status=resident_status_text(row.to_status),
+                reason=row.reason,
+                created_at=row.created_at,
+            )
+            for row in sorted(ticket.status_history, key=lambda item: item.created_at)
+        ],
+    )
+
+
+TicketCreateBody = Annotated[TicketCreateRequest, Body()]
 
 
 @router.post(
     "",
-    response_model=TicketResponse,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a resident ticket",
+    response_model=ApiResponse[TicketCreatedResponse],
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Tạo phản ánh mới",
     description=(
-        "Resident-only endpoint. Creates a maintenance ticket for an active unit membership. If the resident has "
-        "multiple active units, unit_id is required. Valid attachment upload sessions are locked, verified against "
-        "private Supabase Storage, converted into attachment metadata, and consumed in the same database transaction "
-        "as ticket creation. Raw private Storage paths are never accepted from the client."
+        "Cư dân gửi vị trí và ít nhất text hoặc ảnh. source_unit_id được suy ra từ hồ sơ đã bind; "
+        "frontend không được tự gửi ownership ID. Ảnh dùng signed-upload session một lần."
     ),
-    operation_id="create_ticket",
-    responses={
-        400: BAD_REQUEST_RESPONSE,
-        404: UNIT_NOT_FOUND_RESPONSE,
-        **AUTHENTICATED_RESPONSES,
-        503: {
-            **STORAGE_UNAVAILABLE_RESPONSE,
-            "description": "Supabase Auth or Supabase Storage is unavailable or not configured.",
-        },
-        500: INTERNAL_SERVER_ERROR_RESPONSE,
-    },
+    operation_id="create_resident_ticket",
 )
 def create_ticket(
-    request: TicketCreateBody,
-    resident: Resident = Depends(require_resident),
+    http_request: Request,
+    body: TicketCreateBody,
+    actor: CurrentActor = Depends(require_resident),
     db: Session = Depends(get_db),
-) -> TicketResponse:
-    ticket = TicketService(db).create_ticket(resident, request)
-    return ticket_response(ticket)
+    storage_service: StorageService = Depends(get_storage_service),
+):
+    ticket = TicketService(db, storage_service).create_ticket(
+        actor.user.user_id, actor.resident_profile, body
+    )
+    return _ok(
+        http_request,
+        TicketCreatedResponse(
+            ticket_id=ticket.id,
+            status=ticket.status,
+            classification_status=ticket.classification_status,
+            display_status="Đang phân tích...",
+        ),
+    )
 
 
 @router.get(
-    "/my",
-    response_model=TicketListResponse,
-    summary="List my tickets",
-    description=(
-        "Resident-only endpoint. Returns tickets accessible through the authenticated resident's active unit "
-        "memberships. Supports optional status, category, and ISO 8601 created_at range filters. Results are ordered "
-        "by newest first and paginated; page numbering starts at 1 and page_size must be between 1 and 100."
-    ),
-    operation_id="list_my_tickets",
-    responses=AUTHENTICATED_RESPONSES,
+    "",
+    response_model=ApiResponse[TicketListResponse],
+    summary="Danh sách phản ánh của căn hộ hiện tại",
+    operation_id="list_resident_tickets",
 )
-def my_tickets(
-    resident: Resident = Depends(require_resident),
+def list_tickets(
+    http_request: Request,
+    actor: CurrentActor = Depends(require_resident),
     db: Session = Depends(get_db),
-    status_filter: TicketStatus | None = Query(default=None, alias="status", description="Filter by ticket status."),
-    category: Category | None = Query(default=None, description="Filter by AI-assigned ticket category."),
-    created_from: datetime | None = Query(
-        default=None,
-        description="Filter tickets created at or after this ISO 8601 timestamp.",
-    ),
-    created_to: datetime | None = Query(
-        default=None,
-        description="Filter tickets created at or before this ISO 8601 timestamp.",
-    ),
-    page: int = Query(default=1, ge=1, description="Page number. Page numbering starts at 1."),
+    status_filter: TicketStatus | None = Query(default=None, alias="status"),
+    category: Category | None = Query(default=None),
+    created_from: datetime | None = Query(default=None, alias="from"),
+    created_to: datetime | None = Query(default=None, alias="to"),
+    page: int = Query(default=1, ge=1),
     page_size: int = Depends(bounded_page_size),
-) -> TicketListResponse:
+):
     items, total = TicketService(db).list_my_tickets(
-        resident, page, page_size, status_filter, category, created_from, created_to
+        actor.resident_profile,
+        page,
+        page_size,
+        status_filter,
+        category,
+        created_from,
+        created_to,
     )
-    return TicketListResponse(items=[ticket_response(item) for item in items], page=page, page_size=page_size, total=total)
+    data = TicketListResponse(
+        items=[resident_ticket_response(item) for item in items],
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
+    return _ok(http_request, data, {"page": page, "page_size": page_size, "total": total})
 
 
 @router.get(
     "/{ticket_id}",
-    response_model=TicketResponse,
-    summary="Get ticket detail",
-    description=(
-        "Resident or BQL endpoint. Residents can retrieve only tickets accessible through active unit "
-        "membership. BQL can retrieve any ticket for the current MVP. For residents, the endpoint returns "
-        "404 both when the ticket does not exist and when the resident is not authorized, avoiding resource "
-        "existence leaks."
-    ),
-    operation_id="get_ticket",
-    responses={
-        404: TICKET_NOT_FOUND_RESPONSE,
-        **AUTHENTICATED_RESPONSES,
-    },
+    response_model=ApiResponse[ResidentTicketResponse],
+    summary="Chi tiết phản ánh của căn hộ",
+    operation_id="get_resident_ticket",
 )
 def ticket_detail(
-    ticket_id: UUID = Path(description="Ticket UUID to retrieve."),
-    actor: CurrentActor = Depends(get_current_actor),
+    http_request: Request,
+    ticket_id: UUID = Path(),
+    actor: CurrentActor = Depends(require_resident),
     db: Session = Depends(get_db),
-) -> TicketResponse:
-    service = TicketService(db)
-    if actor.actor_type == "resident":
-        ticket = service.get_ticket_for_resident(actor.profile, ticket_id)
-    elif actor.actor_type == "bql":
-        ticket = service.get_ticket_for_bql(actor.profile, ticket_id)
-    else:
-        raise DomainError(ACTOR_FORBIDDEN, "Actor is not allowed for this operation.", 403)
-    return ticket_response(ticket)
+):
+    ticket = TicketService(db).get_ticket(actor.resident_profile, ticket_id)
+    return _ok(http_request, resident_ticket_response(ticket))
+
+
+@router.post(
+    "/{ticket_id}/cancel",
+    response_model=ApiResponse[ResidentTicketResponse],
+    summary="Hủy ticket khi còn NEW",
+    operation_id="cancel_resident_ticket",
+)
+def cancel_ticket(
+    http_request: Request,
+    ticket_id: UUID,
+    actor: CurrentActor = Depends(require_resident),
+    db: Session = Depends(get_db),
+):
+    ticket = TicketService(db).cancel_ticket(actor.user.user_id, actor.resident_profile, ticket_id)
+    return _ok(http_request, resident_ticket_response(ticket))
+
+
+@router.post(
+    "/{ticket_id}/supplements",
+    response_model=ApiResponse[ResidentTicketResponse],
+    summary="Bổ sung thông tin theo yêu cầu BQL",
+    operation_id="supplement_resident_ticket",
+)
+def supplement_ticket(
+    http_request: Request,
+    ticket_id: UUID,
+    body: TicketSupplementRequest,
+    actor: CurrentActor = Depends(require_resident),
+    db: Session = Depends(get_db),
+    storage_service: StorageService = Depends(get_storage_service),
+):
+    ticket = TicketService(db, storage_service).supplement(
+        actor.user.user_id, actor.resident_profile, ticket_id, body
+    )
+    return _ok(http_request, resident_ticket_response(ticket))
 
 
 @router.get(
     "/{ticket_id}/attachments/{attachment_id}/download-url",
-    response_model=AttachmentDownloadUrlResponse,
-    summary="Create attachment download URL",
-    description=(
-        "Resident or BQL endpoint. Returns a short-lived signed Supabase Storage download URL for an "
-        "attachment that belongs to the requested ticket and is visible to the current user. The response contains "
-        "a signed URL, not a public URL and not the private Storage object path. Missing tickets, unauthorized "
-        "resident access, and missing attachments are all reported as 404 attachment not found."
-    ),
-    operation_id="get_ticket_attachment_download_url",
-    responses={
-        404: ATTACHMENT_NOT_FOUND_RESPONSE,
-        **AUTHENTICATED_RESPONSES,
-        503: {
-            **STORAGE_UNAVAILABLE_RESPONSE,
-            "description": "Supabase Auth or Supabase Storage is unavailable or not configured.",
-        },
-        500: INTERNAL_SERVER_ERROR_RESPONSE,
-    },
+    response_model=ApiResponse[AttachmentDownloadUrlResponse],
+    summary="Tạo signed URL cho ảnh thuộc ticket của căn hộ",
 )
 def attachment_download_url(
-    ticket_id: UUID = Path(description="Ticket UUID that owns the attachment."),
-    attachment_id: UUID = Path(description="Attachment UUID to sign for download."),
-    actor: CurrentActor = Depends(get_current_actor),
+    http_request: Request,
+    ticket_id: UUID,
+    attachment_id: UUID,
+    actor: CurrentActor = Depends(require_resident),
     db: Session = Depends(get_db),
-) -> AttachmentDownloadUrlResponse:
-    service = TicketService(db)
-    if actor.actor_type == "resident":
-        attachment, signed_url, expires_in = service.get_attachment_download_url_for_resident(
-            actor.profile, ticket_id, attachment_id
-        )
-    elif actor.actor_type == "bql":
-        attachment, signed_url, expires_in = service.get_attachment_download_url_for_bql(
-            actor.profile, ticket_id, attachment_id
-        )
-    else:
-        raise DomainError(ACTOR_FORBIDDEN, "Actor is not allowed for this operation.", 403)
-    return AttachmentDownloadUrlResponse(
+    storage_service: StorageService = Depends(get_storage_service),
+):
+    attachment, signed_url, expires_in = TicketService(db, storage_service).get_attachment_download_url(
+        actor.resident_profile, ticket_id, attachment_id
+    )
+    data = AttachmentDownloadUrlResponse(
         attachment_id=attachment.id,
         signed_download_url=signed_url,
         expires_in=expires_in,
         mime_type=attachment.mime_type,
-        file_size=attachment.file_size,
+        size_bytes=attachment.size_bytes,
     )
-
-
-def ticket_response(ticket: Ticket) -> TicketResponse:
-    return TicketResponse(
-        id=ticket.id,
-        title=ticket.title,
-        description=ticket.description,
-        status=ticket.status,
-        category=ticket.category,
-        severity=ticket.severity,
-        priority=ticket.priority,
-        location_description=ticket.location_description,
-        created_at=ticket.created_at,
-        updated_at=ticket.updated_at,
-        resolved_at=ticket.resolved_at,
-        attachments=[attachment_response(attachment) for attachment in ticket.attachments],
-    )
-
-
-def attachment_response(attachment: TicketAttachment) -> TicketAttachmentResponse:
-    return TicketAttachmentResponse(
-        id=attachment.id,
-        mime_type=attachment.mime_type,
-        file_size=attachment.file_size,
-        download_url_endpoint=f"/api/v1/tickets/{attachment.ticket_id}/attachments/{attachment.id}/download-url",
-    )
+    return _ok(http_request, data)

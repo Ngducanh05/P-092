@@ -1,4 +1,4 @@
-"""AI analysis run persistence model."""
+"""Versioned AI analysis run matching the Backend/Agent contract in Self_Dev_Docs v2."""
 
 from __future__ import annotations
 
@@ -7,59 +7,65 @@ from decimal import Decimal
 from typing import TYPE_CHECKING
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Numeric, String, Text, func
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, func
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import Uuid
 
 from src.database.base import Base
-from src.models.enums import Category, Severity
+from src.models.enums import AnalysisRunStatus, Priority, Severity, SeveritySource
 
 if TYPE_CHECKING:
-    from src.database.models.scoring_result import TicketScoringResult
     from src.database.models.ticket import Ticket
 
+JSON_TYPE = JSONB().with_variant(JSON(), "sqlite")
 
-def enum_values(enum_class: type[Category] | type[Severity]) -> list[str]:
-    """Return stable persisted values for string enums."""
+
+def enum_values(enum_class):
     return [member.value for member in enum_class]
 
 
 class AIAnalysisRun(Base):
-    """Historical AI analysis result for a ticket.
-
-    model_name is nullable so tests and future non-LLM analysis paths can persist
-    historical records even when a model identifier is unavailable.
-    """
-
     __tablename__ = "ai_analysis_runs"
-    __table_args__ = (
-        CheckConstraint("confidence >= 0 AND confidence <= 1", name="ck_ai_analysis_runs_confidence_range"),
-    )
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     ticket_id: Mapped[UUID] = mapped_column(ForeignKey("tickets.id", ondelete="CASCADE"), nullable=False, index=True)
-    category: Mapped[Category] = mapped_column(
-        SQLEnum(Category, name="category_enum", native_enum=True, values_callable=enum_values),
+    run_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    text_model_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    vision_model_version: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    rule_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("scoring_rule_versions.id", ondelete="SET NULL"), nullable=True
+    )
+    input_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    text_categories: Mapped[list[str]] = mapped_column(JSON_TYPE, nullable=False, default=list, server_default="[]")
+    image_categories: Mapped[list[str] | None] = mapped_column(JSON_TYPE, nullable=True)
+    red_flag_text: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    red_flag_signal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    severity: Mapped[Severity | None] = mapped_column(
+        SQLEnum(Severity, name="severity_v2_enum", native_enum=True, values_callable=enum_values), nullable=True
+    )
+    severity_source: Mapped[SeveritySource | None] = mapped_column(
+        SQLEnum(SeveritySource, name="severity_source_enum", native_enum=True, values_callable=enum_values), nullable=True
+    )
+    category_match: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    score_components: Mapped[dict[str, object] | None] = mapped_column(JSON_TYPE, nullable=True)
+    score_total: Mapped[Decimal | None] = mapped_column(Numeric(7, 2), nullable=True)
+    priority_raw: Mapped[Priority | None] = mapped_column(
+        SQLEnum(Priority, name="priority_level_enum", native_enum=True, values_callable=enum_values), nullable=True
+    )
+    priority_final: Mapped[Priority | None] = mapped_column(
+        SQLEnum(Priority, name="priority_level_enum", native_enum=True, values_callable=enum_values), nullable=True
+    )
+    ceiling_applied: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    status: Mapped[AnalysisRunStatus] = mapped_column(
+        SQLEnum(AnalysisRunStatus, name="analysis_run_status_enum", native_enum=True, values_callable=enum_values),
         nullable=False,
+        default=AnalysisRunStatus.RUNNING,
+        server_default=AnalysisRunStatus.RUNNING.value,
     )
-    severity: Mapped[Severity] = mapped_column(
-        SQLEnum(Severity, name="severity_enum", native_enum=True, values_callable=enum_values),
-        nullable=False,
-    )
-    summary: Mapped[str] = mapped_column(Text, nullable=False)
-    red_flags: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
-    text_categories: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
-    image_category: Mapped[Category | None] = mapped_column(
-        SQLEnum(Category, name="category_enum", native_enum=True, values_callable=enum_values),
-        nullable=True,
-    )
-    confidence: Mapped[Decimal] = mapped_column(Numeric(5, 4), nullable=False)
-    recommended_department: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    model_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    status: Mapped[str] = mapped_column(String(50), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     ticket: Mapped[Ticket] = relationship(back_populates="ai_analysis_runs")
-    scoring_results: Mapped[list[TicketScoringResult]] = relationship(back_populates="ai_analysis_run")

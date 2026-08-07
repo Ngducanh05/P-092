@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     # LLM
     openai_api_key: str = ""
-    model_name: str = "gpt-4o-mini"
+    model_name: str = ""
     llm_temperature: float = Field(default=0.7, ge=0.0, le=2.0)
 
     # Database
@@ -40,10 +40,6 @@ class Settings(BaseSettings):
     allowed_ticket_image_mime_types: str | list[str] = "image/jpeg,image/png,image/webp"
     allow_live_migration: bool = False
     run_supabase_integration_tests: bool = False
-    enable_legacy_agent_routes: bool = False
-
-    # Vector Store
-    chroma_persist_dir: str = "./data/chroma"
 
     @field_validator("cors_origins", "allowed_ticket_image_mime_types", mode="before")
     @classmethod

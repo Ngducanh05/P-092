@@ -1,3 +1,6 @@
+> [!WARNING]
+> **TÀI LIỆU LỊCH SỬ / LEGACY.** `Self_Dev_Docs` v2/v3 là source of truth hiện hành của P-092. Nội dung bên dưới về Technician, assignment, `bql_staff`, `residents` hoặc schema cũ chỉ dùng để truy vết lịch sử và **không được dùng làm chuẩn triển khai mới**. Xem `docs/source-of-truth/README.md` và `docs/audit/spec-alignment.md`.
+
 # Supabase Auth Setup
 
 Supabase Auth is the authentication provider. The application does not use `public.users`, `role_enum`, frontend role selection, or editable JWT metadata for authorization.

@@ -1,4 +1,13 @@
-"""Authentication and actor-resolution dependencies."""
+"""Supabase authentication and two-actor authorization resolution.
+
+Self_Dev_Docs v2 is the product source of truth: only Resident and Coordinator
+are human actors. Supabase Auth proves identity; ``user_profiles`` determines
+application authorization. A verified phone identity may be auto-provisioned as
+a Resident profile shell, but Coordinator access is always provisioned by a
+trusted backend script.
+"""
+
+from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
@@ -11,18 +20,17 @@ from sqlalchemy.orm import Session
 
 from src.api.dependencies.database import get_db
 from src.config import get_settings
-from src.database.models.bql_staff import BQLStaff
-from src.database.models.resident import Resident
-from src.database.models.technician_profile import TechnicianProfile
+from src.database.models.resident_profile import ResidentProfile
+from src.database.models.user_profile import UserProfile
 from src.models.api.errors import (
-    ACTOR_FORBIDDEN,
-    AUTH_PROFILE_CONFLICT,
     AUTH_PROFILE_INVALID,
+    AUTH_REQUIRED,
     AUTH_TOKEN_INVALID,
-    AUTH_TOKEN_MISSING,
+    FORBIDDEN,
     USER_INACTIVE,
     DomainError,
 )
+from src.models.enums import UserRole
 from src.repositories.profile_repository import ProfileRepository
 from src.security.supabase_jwt import AuthenticatedPrincipal, SupabaseJWTVerifier
 from src.services.phone import normalize_e164_phone
@@ -30,19 +38,17 @@ from src.services.phone import normalize_e164_phone
 supabase_bearer = HTTPBearer(
     scheme_name="SupabaseBearerAuth",
     bearerFormat="JWT",
-    description=(
-        "Supabase access token. Send requests with "
-        "`Authorization: Bearer <SUPABASE_ACCESS_TOKEN>`. Placeholder: `eyJ...supabase-access-token`."
-    ),
+    description="Supabase access token. Send `Authorization: Bearer <access_token>`.",
     auto_error=False,
 )
 
 
 @dataclass(frozen=True)
 class CurrentActor:
-    actor_type: Literal["resident", "bql", "technician"]
-    profile: Resident | BQLStaff | TechnicianProfile
+    actor_type: Literal["resident", "coordinator"]
+    user: UserProfile
     principal: AuthenticatedPrincipal
+    resident_profile: ResidentProfile | None = None
 
 
 @lru_cache
@@ -57,10 +63,10 @@ def get_current_principal(
 ) -> AuthenticatedPrincipal:
     if credentials is None:
         if authorization:
-            raise DomainError(AUTH_TOKEN_INVALID, "Invalid authorization header.", 401)
-        raise DomainError(AUTH_TOKEN_MISSING, "Missing bearer token.", 401)
+            raise DomainError(AUTH_TOKEN_INVALID, "Authorization header không hợp lệ.", 401)
+        raise DomainError(AUTH_REQUIRED, "Yêu cầu đăng nhập.", 401)
     if credentials.scheme.lower() != "bearer" or not credentials.credentials:
-        raise DomainError(AUTH_TOKEN_INVALID, "Invalid authorization header.", 401)
+        raise DomainError(AUTH_TOKEN_INVALID, "Authorization header không hợp lệ.", 401)
     return verifier.verify(credentials.credentials)
 
 
@@ -69,64 +75,52 @@ def get_current_actor(
     db: Session = Depends(get_db),
 ) -> CurrentActor:
     repo = ProfileRepository(db)
-    resident = repo.get_resident(principal.auth_user_id)
-    bql_staff = repo.get_bql_staff(principal.auth_user_id)
-    technician = repo.get_technician_profile(principal.auth_user_id)
+    user = repo.get_user_profile(principal.auth_user_id)
     phone = normalize_e164_phone(principal.phone)
 
-    # Guard: one Auth UUID must map to at most one actor profile.
-    profile_count = sum(1 for p in (resident, bql_staff, technician) if p is not None)
-    if profile_count > 1:
-        raise DomainError(AUTH_PROFILE_CONFLICT, "Authenticated identity has conflicting actor profiles.", 401)
+    if user is None:
+        # Self Dev allows first-time Resident creation from a verified phone OTP
+        # identity. Email-only identities can never self-elevate to Coordinator.
+        if not phone:
+            raise DomainError(AUTH_PROFILE_INVALID, "Tài khoản chưa được cấp quyền sử dụng hệ thống.", 403)
+        try:
+            owner = repo.get_phone_owner(phone)
+            if owner is not None and owner.user_id != principal.auth_user_id:
+                raise DomainError(AUTH_PROFILE_INVALID, "Số điện thoại đã thuộc một tài khoản khác.", 401)
+            user = repo.create_resident_user(principal.auth_user_id, phone)
+            db.commit()
+            db.refresh(user)
+        except DomainError:
+            db.rollback()
+            raise
+        except IntegrityError as exc:
+            db.rollback()
+            raise DomainError(AUTH_PROFILE_INVALID, "Không thể tạo hồ sơ cư dân.", 401) from exc
 
-    if technician is not None:
-        email = principal.email.casefold() if principal.email else None
-        if not email or technician.email.casefold() != email:
-            raise DomainError(AUTH_PROFILE_INVALID, "Authenticated email conflicts with technician profile.", 401)
-        if not technician.is_active:
-            raise DomainError(USER_INACTIVE, "Technician profile is inactive.", 403)
-        return CurrentActor("technician", technician, principal)
+    if not user.is_active:
+        raise DomainError(USER_INACTIVE, "Tài khoản đã bị khóa.", 403)
 
-    if bql_staff is not None:
-        email = principal.email.casefold() if principal.email else None
-        if not email or bql_staff.email.casefold() != email:
-            raise DomainError(AUTH_PROFILE_INVALID, "Authenticated email conflicts with BQL profile.", 401)
-        if not bql_staff.is_active:
-            raise DomainError(USER_INACTIVE, "BQL profile is inactive.", 403)
-        return CurrentActor("bql", bql_staff, principal)
+    if user.role == UserRole.RESIDENT:
+        if not phone or user.phone_e164 != phone:
+            raise DomainError(AUTH_PROFILE_INVALID, "Số điện thoại xác thực không khớp hồ sơ cư dân.", 401)
+        resident_profile = repo.get_resident_profile(user.user_id)
+        return CurrentActor("resident", user, principal, resident_profile)
 
-    if resident is not None:
-        if not phone or resident.phone_number != phone:
-            raise DomainError(AUTH_PROFILE_INVALID, "Authenticated phone conflicts with resident profile.", 401)
-        if not resident.is_active:
-            raise DomainError(USER_INACTIVE, "Resident profile is inactive.", 403)
-        return CurrentActor("resident", resident, principal)
+    if user.role == UserRole.COORDINATOR:
+        if not principal.email:
+            raise DomainError(AUTH_PROFILE_INVALID, "Tài khoản Điều phối viên phải đăng nhập bằng email.", 401)
+        return CurrentActor("coordinator", user, principal, None)
 
-    # Unknown identity — may be auto-provisioned as Resident only.
-    if not phone:
-        raise DomainError(AUTH_PROFILE_INVALID, "Authenticated identity does not have a valid resident phone.", 401)
-    try:
-        resident = repo.create_resident_profile(principal.auth_user_id, phone)
-    except IntegrityError as exc:
-        raise DomainError(AUTH_PROFILE_INVALID, "Authenticated profile conflicts with an existing profile.", 401) from exc
-    db.commit()
-    db.refresh(resident)
-    return CurrentActor("resident", resident, principal)
+    raise DomainError(AUTH_PROFILE_INVALID, "Vai trò tài khoản không hợp lệ.", 403)
 
 
-def require_resident(actor: CurrentActor = Depends(get_current_actor)) -> Resident:
+def require_resident(actor: CurrentActor = Depends(get_current_actor)) -> CurrentActor:
     if actor.actor_type != "resident":
-        raise DomainError(ACTOR_FORBIDDEN, "Actor is not allowed for this operation.", 403)
-    return actor.profile  # type: ignore[return-value]
+        raise DomainError(FORBIDDEN, "Chỉ Cư dân được thực hiện thao tác này.", 403)
+    return actor
 
 
-def require_bql(actor: CurrentActor = Depends(get_current_actor)) -> BQLStaff:
-    if actor.actor_type != "bql":
-        raise DomainError(ACTOR_FORBIDDEN, "Actor is not allowed for this operation.", 403)
-    return actor.profile  # type: ignore[return-value]
-
-
-def require_technician(actor: CurrentActor = Depends(get_current_actor)) -> TechnicianProfile:
-    if actor.actor_type != "technician":
-        raise DomainError(ACTOR_FORBIDDEN, "Actor is not allowed for this operation.", 403)
-    return actor.profile  # type: ignore[return-value]
+def require_coordinator(actor: CurrentActor = Depends(get_current_actor)) -> CurrentActor:
+    if actor.actor_type != "coordinator":
+        raise DomainError(FORBIDDEN, "Chỉ Điều phối viên BQL được thực hiện thao tác này.", 403)
+    return actor

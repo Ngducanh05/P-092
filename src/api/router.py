@@ -1,20 +1,13 @@
-"""Central API router."""
+"""Central Self Dev v2 API router."""
 
 from fastapi import APIRouter
 
-from src.api.routes import auth, bql, storage, technician, tickets, units
-from src.config import get_settings
+from src.api.routes import auth, catalog, coordinator, notifications, storage, tickets
 
 api_router = APIRouter()
-api_router.include_router(auth.router, prefix="/auth", tags=["Auth"])
-api_router.include_router(units.router, prefix="/units", tags=["Units"])
+api_router.include_router(auth.router, tags=["Auth"])
+api_router.include_router(catalog.router, prefix="/catalog", tags=["Catalog"])
 api_router.include_router(storage.router, prefix="/storage", tags=["Storage"])
-api_router.include_router(tickets.router, prefix="/tickets", tags=["Tickets"])
-api_router.include_router(bql.router, prefix="/bql", tags=["BQL"])
-api_router.include_router(technician.router, prefix="/technician", tags=["Technician"])
-
-settings = get_settings()
-if settings.enable_legacy_agent_routes and settings.app_env == "development":
-    from src.api.routes import legacy
-
-    api_router.include_router(legacy.router, tags=["Agent Legacy"])
+api_router.include_router(tickets.router, prefix="/tickets", tags=["Resident Tickets"])
+api_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+api_router.include_router(coordinator.router, prefix="/coordinator", tags=["Coordinator"])

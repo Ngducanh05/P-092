@@ -1,5 +1,5 @@
-"""Compatibility exports for actor authorization dependencies."""
+"""Actor authorization exports for the Self Dev v2 two-role model."""
 
-from src.api.dependencies.auth import require_bql, require_resident, require_technician
+from src.api.dependencies.auth import require_coordinator, require_resident
 
-__all__ = ["require_bql", "require_resident", "require_technician"]
+__all__ = ["require_coordinator", "require_resident"]

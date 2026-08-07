@@ -1,42 +1,47 @@
+"""Official Backend ↔ AI Agent contract from Self_Dev_Docs v2."""
+
+from typing import Literal
+from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.models.enums import Category, Severity
 
 
-class AgentResult(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-        str_strip_whitespace=True,
-    )
+class AgentImageRef(BaseModel):
+    """Private image reference passed from Backend/worker to the Agent."""
 
-    category: Category = Field(..., description="Primary issue category selected by the agent.")
-    severity: Severity = Field(..., description="Severity level selected by the agent.")
-    summary: str = Field(
-        ...,
-        min_length=5,
-        max_length=500,
-        description="Short normalized summary of the reported issue.",
-    )
-    red_flags: list[str] = Field(
-        default_factory=list,
-        description="Safety or urgency indicators detected in the report.",
-    )
-    text_categories: list[Category] = Field(
-        default_factory=list,
-        description="Issue categories inferred from text content.",
-    )
-    image_category: Category | None = Field(
-        default=None,
-        description="Issue category inferred from image content, when available.",
-    )
-    confidence: float = Field(
-        ...,
-        ge=0.0,
-        le=1.0,
-        description="Agent confidence score from 0.0 to 1.0.",
-    )
-    recommended_department: str | None = Field(
-        default=None,
-        max_length=100,
-        description="Suggested department for handling the ticket.",
-    )
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    storage_bucket: str = Field(min_length=1, max_length=255)
+    object_path: str = Field(min_length=1, max_length=2048)
+
+
+class AgentAnalyzeRequest(BaseModel):
+    """Official Self Dev request contract for the internal analyze boundary."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    ticket_id: UUID
+    text: str | None = Field(default=None, max_length=5000)
+    image: AgentImageRef | None = None
+    rule_version_id: UUID
+
+class AgentResult(BaseModel):
+    """Only fields produced by the AI layer.
+
+    Category matching, score components, total score, Priority and ceiling are
+    intentionally absent: Self Dev requires the Backend to calculate them.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    text_categories: list[Category] = Field(default_factory=list)
+    red_flag_text: bool = False
+    image_categories: list[Category] | None = None
+    red_flag_signal: bool = False
+    severity: Severity
+    severity_source: Literal["VISION", "TEXT_FALLBACK"]
+    text_model_version: str = Field(min_length=1, max_length=100)
+    vision_model_version: str | None = Field(default=None, max_length=100)
+    error_code: str | None = Field(default=None, max_length=100)

@@ -1,47 +1,43 @@
-"""Resident, BQL, and Technician profile persistence operations."""
+"""Application profile persistence for Resident and Coordinator roles."""
 
 from uuid import UUID
 
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
-from src.database.models.bql_staff import BQLStaff
-from src.database.models.resident import Resident
-from src.database.models.technician_profile import TechnicianProfile
+from src.database.models.resident_profile import ResidentProfile
+from src.database.models.user_profile import UserProfile
+from src.models.enums import UserRole
 
 
 class ProfileRepository:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def get_resident(self, auth_user_id: UUID) -> Resident | None:
-        return self.db.get(Resident, auth_user_id)
+    def get_user_profile(self, auth_user_id: UUID) -> UserProfile | None:
+        return self.db.scalar(
+            select(UserProfile)
+            .where(UserProfile.user_id == auth_user_id)
+            .options(joinedload(UserProfile.resident_profile).joinedload(ResidentProfile.unit))
+        )
 
-    def get_bql_staff(self, auth_user_id: UUID) -> BQLStaff | None:
-        return self.db.get(BQLStaff, auth_user_id)
+    def get_resident_profile(self, auth_user_id: UUID) -> ResidentProfile | None:
+        return self.db.scalar(
+            select(ResidentProfile)
+            .where(ResidentProfile.user_id == auth_user_id)
+            .options(joinedload(ResidentProfile.unit))
+        )
 
-    def get_technician_profile(self, auth_user_id: UUID) -> TechnicianProfile | None:
-        return self.db.get(TechnicianProfile, auth_user_id)
+    def create_resident_user(self, auth_user_id: UUID, phone_e164: str) -> UserProfile:
+        profile = UserProfile(
+            user_id=auth_user_id,
+            phone_e164=phone_e164,
+            role=UserRole.RESIDENT,
+            is_active=True,
+        )
+        self.db.add(profile)
+        self.db.flush()
+        return profile
 
-    def get_resident_by_phone(self, phone_number: str) -> Resident | None:
-        return self.db.scalar(select(Resident).where(Resident.phone_number == phone_number))
-
-    def get_bql_by_email(self, email: str) -> BQLStaff | None:
-        return self.db.scalar(select(BQLStaff).where(BQLStaff.email == email))
-
-    def get_technician_by_email(self, email: str) -> TechnicianProfile | None:
-        return self.db.scalar(select(TechnicianProfile).where(TechnicianProfile.email == email))
-
-    def create_resident_profile(self, auth_user_id: UUID, phone_number: str) -> Resident:
-        existing = self.get_resident(auth_user_id)
-        if existing is not None:
-            return existing
-        resident = Resident(id=auth_user_id, phone_number=phone_number, is_active=True)
-        try:
-            with self.db.begin_nested():
-                self.db.add(resident)
-                self.db.flush()
-        except IntegrityError:
-            raise
-        return resident
+    def get_phone_owner(self, phone_e164: str) -> UserProfile | None:
+        return self.db.scalar(select(UserProfile).where(UserProfile.phone_e164 == phone_e164))

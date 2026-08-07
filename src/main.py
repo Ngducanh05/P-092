@@ -1,8 +1,11 @@
+"""FixIt Agent FastAPI application aligned with Self_Dev_Docs v2/v3."""
+
 import logging
 from contextlib import asynccontextmanager
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -10,57 +13,55 @@ from src.api.openapi_responses import INTERNAL_SERVER_ERROR_RESPONSE
 from src.api.router import api_router
 from src.config import get_settings
 from src.database.session import engine
-from src.models.api.errors import INTERNAL_ERROR, DomainError
+from src.models.api.errors import (
+    INTERNAL_ERROR,
+    OVERRIDE_REASON_REQUIRED,
+    TEXT_OR_IMAGE_REQUIRED,
+    VALIDATION_ERROR,
+    DomainError,
+)
 from src.models.api.health import HealthResponse, ReadinessResponse
+from src.request_context import request_id_context
 from src.services.readiness_service import ReadinessService
 
 logger = logging.getLogger(__name__)
-
 settings = get_settings()
 
 OPENAPI_DESCRIPTION = """
-FixIt Agent API is the MVP backend for apartment maintenance reporting.
+FixIt Agent là backend FastAPI cho hệ thống phân loại và ưu tiên phản ánh chung cư.
 
-Residents use the API to view active unit memberships, request private attachment
-upload targets, create maintenance tickets, list their accessible tickets, and
-retrieve short-lived attachment download URLs.
+**Nguồn chuẩn sản phẩm:** `Self_Dev_Docs` v2/v3.
 
-BQL staff use the API to read the system-wide ticket queue, inspect the active Technician roster, and assign eligible tickets.
+Hai actor người dùng duy nhất:
+- Cư dân: Supabase Auth số điện thoại + OTP.
+- Điều phối viên BQL: Supabase Auth email + password, được backend cấp quyền COORDINATOR.
 
-Technicians use assignment-scoped endpoints to read only their own active work, accept assignments, start work, or return work they cannot handle.
+Hệ thống không có actor Kỹ thuật viên, không có assignment workflow. Điều phối viên
+chuyển ticket trực tiếp `APPROVED → IN_PROGRESS → COMPLETED/UNRESOLVABLE`.
+P0 là `classification_status=MANUAL_REVIEW`, không phải Priority. Priority chỉ P1/P2/P3.
 
-Authentication for protected endpoints uses Supabase Bearer access tokens:
-`Authorization: Bearer <SUPABASE_ACCESS_TOKEN>`. In Swagger UI, use the
-Authorize button and paste only an access token, for example
-`eyJ...supabase-access-token`. Do not use Supabase secret or service-role keys.
+Các endpoint nghiệp vụ dùng `Authorization: Bearer <Supabase access token>`.
 """
 
 
 def openapi_tags() -> list[dict[str, str]]:
     tags = [
-        {"name": "Health", "description": "Public liveness and readiness checks."},
-        {"name": "Auth", "description": "Authenticated Resident, BQL, or Technician actor context."},
-        {"name": "Units", "description": "Resident unit membership APIs."},
-        {"name": "Storage", "description": "Private Supabase Storage signed upload targets for ticket attachments."},
-        {"name": "Tickets", "description": "Resident ticket creation, listing, detail, and attachment download APIs."},
-        {"name": "BQL", "description": "BQL ticket queue, Technician roster, and assignment APIs."},
-        {"name": "Technician", "description": "Technician assignment management APIs."},
+        {"name": "Health", "description": "Liveness/readiness công khai."},
+        {"name": "Auth", "description": "Hồ sơ hai actor và bind căn hộ."},
+        {"name": "Catalog", "description": "Danh mục vị trí và Category do backend quản lý."},
+        {"name": "Storage", "description": "Signed upload extension cho ảnh ticket."},
+        {"name": "Resident Tickets", "description": "Tạo/theo dõi/hủy/bổ sung ticket của Cư dân."},
+        {"name": "Notifications", "description": "Thông báo theo user."},
+        {"name": "Coordinator", "description": "Dashboard, P0, override, xử lý, audit và reports."},
     ]
-    if settings.enable_legacy_agent_routes and settings.app_env == "development":
-        tags.append(
-            {
-                "name": "Agent Legacy",
-                "description": "Development-only legacy starter Agent routes guarded by a feature flag.",
-            }
-        )
     return tags
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = get_settings()
-    settings.validate_runtime_safety()
-    print(f"Starting {settings.app_name} in {settings.app_env} mode")
+    runtime = get_settings()
+    runtime.validate_runtime_safety()
+    print(f"Starting {runtime.app_name} in {runtime.app_env} mode")
     yield
     print("Shutting down...")
 
@@ -68,7 +69,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="FixIt Agent API",
     description=OPENAPI_DESCRIPTION,
-    version="1.0.0",
+    version="2.0.0",
     openapi_tags=openapi_tags(),
     docs_url="/docs",
     redoc_url="/redoc",
@@ -89,9 +90,17 @@ app.include_router(api_router, prefix="/api/v1")
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
-    request_id = request.headers.get("x-request-id") or str(uuid4())
+    supplied = request.headers.get("x-request-id")
+    try:
+        request_id = str(UUID(supplied)) if supplied else str(uuid4())
+    except (TypeError, ValueError):
+        request_id = str(uuid4())
     request.state.request_id = request_id
-    response = await call_next(request)
+    token = request_id_context.set(request_id)
+    try:
+        response = await call_next(request)
+    finally:
+        request_id_context.reset(token)
     response.headers["x-request-id"] = request_id
     return response
 
@@ -101,12 +110,34 @@ async def domain_error_handler(request: Request, exc: DomainError) -> JSONRespon
     return JSONResponse(
         status_code=exc.status_code,
         content={
-            "error": {
-                "code": exc.code,
-                "message": exc.message,
-                "details": exc.details,
-                "request_id": getattr(request.state, "request_id", None),
-            }
+            "data": None,
+            "error": {"code": exc.code, "message": exc.message},
+            "request_id": getattr(request.state, "request_id", None),
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    errors = exc.errors()
+    messages = " ".join(str(item.get("msg", "")) for item in errors)
+    if "At least description or one image upload is required" in messages:
+        code = TEXT_OR_IMAGE_REQUIRED
+        message = "Phải có ít nhất mô tả hoặc ảnh."
+    elif request.url.path.endswith("/classification") and any(
+        item.get("loc", ())[-1:] == ("reason",) for item in errors
+    ):
+        code = OVERRIDE_REASON_REQUIRED
+        message = "Override Category/Priority bắt buộc phải có lý do hợp lệ."
+    else:
+        code = VALIDATION_ERROR
+        message = "Dữ liệu yêu cầu không hợp lệ."
+    return JSONResponse(
+        status_code=422,
+        content={
+            "data": None,
+            "error": {"code": code, "message": message},
+            "request_id": getattr(request.state, "request_id", None),
         },
     )
 
@@ -120,57 +151,24 @@ async def unhandled_error_handler(request: Request, exc: Exception) -> JSONRespo
             "method": request.method,
             "path": request.url.path,
             "exception_type": type(exc).__name__,
-            "safe_message": "Internal server error.",
         },
     )
     return JSONResponse(
         status_code=500,
         content={
-            "error": {
-                "code": INTERNAL_ERROR,
-                "message": "Internal server error.",
-                "details": None,
-                "request_id": getattr(request.state, "request_id", None),
-            }
+            "data": None,
+            "error": {"code": INTERNAL_ERROR, "message": "Internal server error."},
+            "request_id": getattr(request.state, "request_id", None),
         },
     )
 
 
-@app.get(
-    "/health",
-    tags=["Health"],
-    response_model=HealthResponse,
-    summary="Check API liveness",
-    description=(
-        "Public unauthenticated liveness check. Returns the application name, current environment label, "
-        "and a simple ok status without checking external dependencies."
-    ),
-    operation_id="health_check",
-    responses={500: INTERNAL_SERVER_ERROR_RESPONSE},
-)
+@app.get("/health", tags=["Health"], response_model=HealthResponse, responses={500: INTERNAL_SERVER_ERROR_RESPONSE})
 async def health() -> HealthResponse:
     return {"application": settings.app_name, "environment": settings.app_env, "status": "ok"}
 
 
-@app.get(
-    "/ready",
-    tags=["Health"],
-    response_model=ReadinessResponse,
-    summary="Check API readiness",
-    description=(
-        "Public unauthenticated readiness check. It safely reports database, migration, Supabase Auth, "
-        "and Supabase Storage configuration statuses without exposing hostnames, URLs, credentials, "
-        "stack traces, or internal exception messages."
-    ),
-    operation_id="readiness_check",
-    responses={
-        503: {
-            "model": ReadinessResponse,
-            "description": "A required dependency is missing, unavailable, or not ready.",
-        },
-        500: INTERNAL_SERVER_ERROR_RESPONSE,
-    },
-)
+@app.get("/ready", tags=["Health"], response_model=ReadinessResponse)
 async def ready() -> ReadinessResponse | JSONResponse:
     payload, status_code = ReadinessService(settings, engine).check()
     if status_code != 200:

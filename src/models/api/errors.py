@@ -1,41 +1,9 @@
-"""Stable API error contract."""
+"""Stable error codes shared with FE according to Self_Dev_Docs v2."""
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
-
-ERROR_RESPONSE_EXAMPLE = {
-    "error": {
-        "code": "AUTH_TOKEN_INVALID",
-        "message": "Invalid access token.",
-        "details": None,
-        "request_id": "550e8400-e29b-41d4-a716-446655440000",
-    }
-}
-
-
-class ErrorBody(BaseModel):
-    model_config = ConfigDict(extra="forbid", json_schema_extra={"example": ERROR_RESPONSE_EXAMPLE["error"]})
-
-    code: str = Field(description="Stable machine-readable error code.", examples=["AUTH_TOKEN_INVALID"])
-    message: str = Field(description="Safe human-readable error message.", examples=["Invalid access token."])
-    details: Any = Field(default=None, description="Optional structured details. Null when no safe details are available.")
-    request_id: str | None = Field(
-        default=None,
-        description="Request correlation ID returned in the x-request-id response header.",
-        examples=["550e8400-e29b-41d4-a716-446655440000"],
-    )
-
-
-class ErrorResponse(BaseModel):
-    model_config = ConfigDict(extra="forbid", json_schema_extra={"example": ERROR_RESPONSE_EXAMPLE})
-
-    error: ErrorBody = Field(description="Stable error envelope used by API domain and authorization failures.")
-
 
 class DomainError(Exception):
-    """Expected business or authorization failure."""
-
     def __init__(self, code: str, message: str, status_code: int = 400, details: Any = None) -> None:
         super().__init__(message)
         self.code = code
@@ -44,32 +12,31 @@ class DomainError(Exception):
         self.details = details
 
 
-AUTH_TOKEN_MISSING = "AUTH_TOKEN_MISSING"
+AUTH_REQUIRED = "AUTH_REQUIRED"
+AUTH_TOKEN_MISSING = AUTH_REQUIRED
 AUTH_TOKEN_INVALID = "AUTH_TOKEN_INVALID"
 AUTH_TOKEN_EXPIRED = "AUTH_TOKEN_EXPIRED"
 AUTH_SERVICE_UNAVAILABLE = "AUTH_SERVICE_UNAVAILABLE"
 AUTH_PROFILE_INVALID = "AUTH_PROFILE_INVALID"
-AUTH_PROFILE_CONFLICT = "AUTH_PROFILE_CONFLICT"
 USER_INACTIVE = "USER_INACTIVE"
 FORBIDDEN = "FORBIDDEN"
-ROLE_FORBIDDEN = "ROLE_FORBIDDEN"
-ACTOR_FORBIDDEN = "ACTOR_FORBIDDEN"
-NO_ACTIVE_UNIT = "NO_ACTIVE_UNIT"
-UNIT_SELECTION_REQUIRED = "UNIT_SELECTION_REQUIRED"
 UNIT_NOT_FOUND = "UNIT_NOT_FOUND"
+ACCOUNT_ALREADY_BOUND = "ACCOUNT_ALREADY_BOUND"
+NO_ACTIVE_UNIT = "NO_ACTIVE_UNIT"
+TEXT_OR_IMAGE_REQUIRED = "TEXT_OR_IMAGE_REQUIRED"
+IMAGE_UNREADABLE = "IMAGE_UNREADABLE"
+INVALID_LOCATION = "INVALID_LOCATION"
 TICKET_NOT_FOUND = "TICKET_NOT_FOUND"
+TICKET_NOT_OWNED = "TICKET_NOT_OWNED"
+INVALID_STATUS_TRANSITION = "INVALID_STATUS_TRANSITION"
+P0_REVIEW_REQUIRED = "P0_REVIEW_REQUIRED"
+CATEGORY_REQUIRED = "CATEGORY_REQUIRED"
+OVERRIDE_REASON_REQUIRED = "OVERRIDE_REASON_REQUIRED"
+CONFLICT_VERSION = "CONFLICT_VERSION"
 ATTACHMENT_NOT_FOUND = "ATTACHMENT_NOT_FOUND"
 INVALID_ATTACHMENT = "INVALID_ATTACHMENT"
+INFORMATION_REQUEST_NOT_FOUND = "INFORMATION_REQUEST_NOT_FOUND"
 STORAGE_NOT_CONFIGURED = "STORAGE_NOT_CONFIGURED"
 DATABASE_NOT_CONFIGURED = "DATABASE_NOT_CONFIGURED"
+VALIDATION_ERROR = "VALIDATION_ERROR"
 INTERNAL_ERROR = "INTERNAL_ERROR"
-
-# Technician / assignment domain
-TECHNICIAN_NOT_FOUND = "TECHNICIAN_NOT_FOUND"
-TECHNICIAN_UNAVAILABLE = "TECHNICIAN_UNAVAILABLE"
-TICKET_NOT_READY_FOR_ASSIGNMENT = "TICKET_NOT_READY_FOR_ASSIGNMENT"
-ASSIGNMENT_CONFLICT = "ASSIGNMENT_CONFLICT"
-ASSIGNMENT_NOT_FOUND = "ASSIGNMENT_NOT_FOUND"
-INVALID_ASSIGNMENT_TRANSITION = "INVALID_ASSIGNMENT_TRANSITION"
-UNABLE_REASON_REQUIRED = "UNABLE_REASON_REQUIRED"
-COMPLETION_EVIDENCE_REQUIRED = "COMPLETION_EVIDENCE_REQUIRED"

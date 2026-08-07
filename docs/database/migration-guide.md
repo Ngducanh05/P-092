@@ -1,3 +1,6 @@
+> [!WARNING]
+> **TÀI LIỆU LỊCH SỬ / LEGACY.** `Self_Dev_Docs` v2/v3 là source of truth hiện hành của P-092. Nội dung bên dưới về Technician, assignment, `bql_staff`, `residents` hoặc schema cũ chỉ dùng để truy vết lịch sử và **không được dùng làm chuẩn triển khai mới**. Xem `docs/source-of-truth/README.md` và `docs/audit/spec-alignment.md`.
+
 # Migration Guide
 
 Existing revisions through `c3d4e5f6a7b8` remain historical. Do not delete, reorder, squash, or rewrite them to pretend the old `public.users` and Technician architecture never existed.

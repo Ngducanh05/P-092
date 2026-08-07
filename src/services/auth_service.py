@@ -1,50 +1,80 @@
-"""Small auth response helpers."""
+"""Profile/binding operations for Self Dev v2 authentication flows."""
 
-from src.database.models.bql_staff import BQLStaff
-from src.database.models.resident import Resident
-from src.database.models.technician_profile import TechnicianProfile
-from src.database.models.unit import Unit
-from src.models.api.auth import CurrentBQLResponse, CurrentResidentResponse, CurrentTechnicianResponse
-from src.models.api.units import UnitResponse
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+
+from src.api.dependencies.auth import CurrentActor
+from src.models.api.auth import CurrentUserResponse, UnitSummary
+from src.models.api.errors import ACCOUNT_ALREADY_BOUND, FORBIDDEN, UNIT_NOT_FOUND, DomainError
+from src.models.enums import UserRole
+from src.repositories.unit_repository import UnitRepository
 
 
-def current_resident_response(resident: Resident, active_units: list[Unit]) -> CurrentResidentResponse:
-    return CurrentResidentResponse(
-        actor_type="resident",
-        id=resident.id,
-        phone_number=resident.phone_number,
-        full_name=resident.full_name,
-        is_active=resident.is_active,
-        active_unit_memberships=[
-            UnitResponse(
-                unit_id=unit.id,
-                building_code=unit.building_code,
-                floor=unit.floor,
-                unit_number=unit.unit_number,
-                is_active=unit.is_active,
+class AuthService:
+    def __init__(self, db: Session) -> None:
+        self.db = db
+        self.units = UnitRepository(db)
+
+    def current_user_response(self, actor: CurrentActor) -> CurrentUserResponse:
+        unit_summary = None
+        resident_profile = actor.resident_profile
+        if resident_profile is not None:
+            unit = resident_profile.unit
+            # Make sure catalog relationships are available even if the profile
+            # was materialized before the binding transaction committed.
+            if not getattr(unit, "building", None) or not getattr(unit, "floor", None):
+                unit = self.units.get_resident_unit(actor.user.user_id) or unit
+            unit_summary = UnitSummary(
+                id=unit.id,
+                unit_code=unit.unit_code,
+                building_code=unit.building.code,
+                floor_code=unit.floor.floor_code,
+                is_primary=resident_profile.is_primary,
             )
-            for unit in active_units
-        ],
-    )
+        return CurrentUserResponse(
+            user_id=actor.user.user_id,
+            role=actor.user.role,
+            actor_type=actor.actor_type,
+            full_name=actor.user.full_name,
+            phone_e164=actor.user.phone_e164,
+            is_active=actor.user.is_active,
+            unit=unit_summary,
+        )
 
-
-def current_bql_response(bql_staff: BQLStaff) -> CurrentBQLResponse:
-    return CurrentBQLResponse(
-        actor_type="bql",
-        id=bql_staff.id,
-        email=bql_staff.email,
-        full_name=bql_staff.full_name,
-        is_active=bql_staff.is_active,
-    )
-
-
-def current_technician_response(technician: TechnicianProfile) -> CurrentTechnicianResponse:
-    return CurrentTechnicianResponse(
-        actor_type="technician",
-        id=technician.id,
-        email=technician.email,
-        full_name=technician.full_name,
-        phone_number=technician.phone_number,
-        is_active=technician.is_active,
-        is_available=technician.is_available,
-    )
+    def bind_unit(self, actor: CurrentActor, unit_code: str) -> CurrentUserResponse:
+        if actor.user.role != UserRole.RESIDENT:
+            raise DomainError(FORBIDDEN, "Chỉ Cư dân được liên kết căn hộ.", 403)
+        existing = self.units.get_resident_profile(actor.user.user_id)
+        if existing is not None:
+            raise DomainError(ACCOUNT_ALREADY_BOUND, "Tài khoản đã liên kết với một căn hộ.", 409)
+        unit = self.units.get_by_code(unit_code)
+        if unit is None:
+            raise DomainError(UNIT_NOT_FOUND, "Không tìm thấy mã căn hộ.", 404)
+        is_primary = not self.units.unit_has_resident(unit.id)
+        try:
+            profile = self.units.bind_resident(actor.user.user_id, unit, is_primary=is_primary)
+            self.db.commit()
+            self.db.refresh(profile)
+        except IntegrityError:
+            self.db.rollback()
+            if not is_primary:
+                raise
+            # Concurrent first-bind race: the partial unique index decides the
+            # actual primary. Retry this user as a normal member of the unit.
+            if self.units.get_resident_profile(actor.user.user_id) is not None:
+                raise DomainError(ACCOUNT_ALREADY_BOUND, "Tài khoản đã liên kết với một căn hộ.", 409)
+            unit = self.units.get_by_code(unit_code)
+            if unit is None:
+                raise DomainError(UNIT_NOT_FOUND, "Không tìm thấy mã căn hộ.", 404)
+            try:
+                profile = self.units.bind_resident(actor.user.user_id, unit, is_primary=False)
+                self.db.commit()
+                self.db.refresh(profile)
+            except Exception:
+                self.db.rollback()
+                raise
+        except Exception:
+            self.db.rollback()
+            raise
+        refreshed_actor = CurrentActor("resident", actor.user, actor.principal, self.units.get_resident_profile(actor.user.user_id))
+        return self.current_user_response(refreshed_actor)
